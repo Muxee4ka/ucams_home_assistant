@@ -7,6 +7,7 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.ucams.ucams import UcamsApi
 from custom_components.ucams.utils import (
+    CONF_URL,
     CONF_NAME,
     CONF_USERNAME,
     CONF_PASSWORD,
@@ -20,9 +21,10 @@ DATA_SCHEMA = {
 }
 
 OPTIONS_SCHEMA = {
+    vol.Required(CONF_URL, msg="Domain url", default="https://ucams.ufanet.ru"): str,
     vol.Required(CONF_USERNAME, msg="Username"): str,
     vol.Required(CONF_PASSWORD, msg="Password"): str,
-    vol.Required(CONF_CAMERA_IMAGE_REFRESH_INTERVAL, msg="Refresh interval", default=2): int,
+    vol.Required(CONF_CAMERA_IMAGE_REFRESH_INTERVAL, msg="Refresh interval", default=60): int,
 }
 
 _LOGGER = logging.getLogger(__name__)

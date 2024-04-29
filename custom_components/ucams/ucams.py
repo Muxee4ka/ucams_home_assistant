@@ -2,7 +2,9 @@ import asyncio
 import datetime
 import logging
 from functools import partial
+from os.path import join
 from time import time
+from urllib.parse import urlencode, urlunparse
 
 import requests
 from homeassistant.config_entries import ConfigEntry
@@ -10,6 +12,7 @@ from homeassistant.core import HomeAssistant
 from transliterate import translit
 
 from custom_components.ucams.utils import (
+    CONF_URL,
     CONF_USERNAME,
     CONF_PASSWORD,
     CONF_NAME,
@@ -28,6 +31,7 @@ class UcamsApi:
         self.hass = hass
         self.username = config_entry.options[CONF_USERNAME]
         self.password = config_entry.options[CONF_PASSWORD]
+        self.base_url = config_entry.options[CONF_URL]
         self.config_entry_name = config_entry.data[CONF_NAME]
         self.lock = asyncio.Lock()
         self.session = requests.Session()
@@ -38,7 +42,7 @@ class UcamsApi:
         ]
 
     async def login(self):
-        url = 'https://ucams.ufanet.ru/api/internal/login/'
+        url = join(self.base_url, 'api/internal/login/')
         headers = {
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
             'Content-Type': 'application/x-www-form-urlencoded',
@@ -72,7 +76,7 @@ class UcamsApi:
 
     async def get_cameras_info(self) -> dict:
         await self.auth()
-        url = 'https://ucams.ufanet.ru/api/v0/cameras/my/'
+        url = join(self.base_url, 'api/v0/cameras/my/')
         headers = {
             'Accept': 'application/json, text/plain, */*',
             'Content-Type': 'application/json',
@@ -116,17 +120,23 @@ class UcamsApi:
             _LOGGER.debug(r)
             _LOGGER.debug(r.content)
 
-            self.cached_cameras_info = r.json()
-            self.cached_cameras_info_timestamp = int(time())
-
-            for camera_info in self.cached_cameras_info['results']:
+            cameras_info = r.json()
+            scheme = 'https'
+            for camera_info in cameras_info['results']:
                 cam_id = camera_info["number"]
                 token_l = camera_info["token_l"]
                 domain = camera_info["server"]["domain"]
                 screenshot_domain = camera_info["server"]["screenshot_domain"]
                 title = camera_info["title"]
-                url_video = f"https://{domain}/{cam_id}/tracks-v1/mono.m3u8?token={token_l}"
-                url_screen = f"https://{screenshot_domain}/api/v0/screenshots/{cam_id}~600.jpg?token={token_l}"
+
+                path = join(cam_id, 'tracks-v1', 'mono.m3u8')
+                query_video = urlencode({'token': token_l})
+                url_video = urlunparse((scheme, domain, path, '', query_video, ''))
+
+                path_screenshot = join("api", "v0", "screenshots", f"{cam_id}~600.jpg")
+                query_screenshot = urlencode({'token': token_l})
+                url_screen = urlunparse((scheme, screenshot_domain, path_screenshot, '', query_screenshot, ''))
+
                 self.cameras[cam_id] = {
                     "id": cam_id,
                     "title": title,

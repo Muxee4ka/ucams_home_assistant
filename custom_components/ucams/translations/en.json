@@ -11,8 +11,10 @@
         "step": {
             "user": {
                 "data": {
+                    "link": "Ucams link",
                     "password": "password",
-                    "username": "username"
+                    "username": "username",
+                    "camera_image_refresh_interval": "Camera refresh interval"
                 }
             }
         }
