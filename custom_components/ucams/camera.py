@@ -1,15 +1,22 @@
+import asyncio
+import logging
+import os
 import re
 import datetime
+from contextlib import suppress
 
-from homeassistant.components.camera import Camera, CameraEntityFeature
+from homeassistant.components.camera import Camera, CameraEntityFeature, _async_get_stream_image, Image
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_time_interval
 
-from . import _LOGGER, UcamsApi
-from .utils import TOKEN_REFRESH_BUFFER, DOMAIN
+from . import UcamsApi
+from .utils import TOKEN_REFRESH_BUFFER, DOMAIN, TIMEOUT
 
+_LOGGER = logging.getLogger(__name__)
+_LOGGER.setLevel(logging.INFO)
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     cameras_api = hass.data[config_entry.entry_id]["cameras_api"]
@@ -69,10 +76,6 @@ class Ucams(Camera):
         _LOGGER.info("Camera %s stream source is %s", self.camera_id, url)
         return url
 
-    def use_stream_for_stills(self) -> bool:
-        """Whether or not to use stream to generate stills."""
-        return True
-
     async def async_camera_image(
             self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
@@ -84,3 +87,12 @@ class Ucams(Camera):
             "identifiers": {(DOMAIN, f"{self.config_entry_id}_{self.camera_id}")},
             "name": self.device_name,
         }
+
+    async def handle_snapshot(self):
+        async with asyncio.timeout(TIMEOUT):
+            image = await _async_get_stream_image(self, wait_for_next_keyframe=True)
+            if image is None:
+                return
+
+            return image
+

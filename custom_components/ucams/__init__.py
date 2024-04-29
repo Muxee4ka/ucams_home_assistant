@@ -1,8 +1,10 @@
 import logging
+import os
 
 import voluptuous as vol
+from homeassistant.components.camera import ATTR_FILENAME
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import Platform, ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 
 from custom_components.ucams.ucams import UcamsApi
@@ -11,7 +13,7 @@ from custom_components.ucams.utils import (
     CONF_NAME,
     CONF_USERNAME,
     CONF_PASSWORD,
-    CONF_CAMERA_IMAGE_REFRESH_INTERVAL
+    CONF_CAMERA_IMAGE_REFRESH_INTERVAL, DOMAIN
 )
 
 PLATFORMS: list[str] = [Platform.IMAGE, Platform.CAMERA]
@@ -45,3 +47,29 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
     if res:
         del hass.data[config_entry.entry_id]
     return res
+
+
+async def async_setup(hass: HomeAssistant, config_entry: ConfigEntry):
+    # Регистрация сервиса для создания снимков
+    async def handle_snapshot_service(call):
+        entity_id = call.data.get(ATTR_ENTITY_ID)
+        if isinstance(entity_id, list):
+            entity_id = entity_id[0]
+        camera = hass.data['camera'].get_entity(entity_id)
+        filename = call.data[ATTR_FILENAME]
+
+        image = await camera.handle_snapshot()
+
+        def _write_image(to_file: str, image_data: bytes) -> None:
+            """Executor helper to write image."""
+            os.makedirs(os.path.dirname(to_file), exist_ok=True)
+            with open(to_file, "wb") as img_file:
+                img_file.write(image_data)
+
+        try:
+            await hass.async_add_executor_job(_write_image, filename, image)
+        except OSError as err:
+            _LOGGER.error("Can't write image to file: %s", err)
+
+    hass.services.async_register(DOMAIN, "snapshot", handle_snapshot_service)
+    return True
