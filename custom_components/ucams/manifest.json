@@ -1,0 +1,9 @@
+{
+    "domain": "ucams",
+    "name": "ucams",
+    "documentation": "https://t.me/muxee4ka",
+    "iot_class": "cloud_polling",
+    "version": "0.0.1",
+    "requirements": ["transliterate", "pyjwt"],
+    "config_flow": true
+}
