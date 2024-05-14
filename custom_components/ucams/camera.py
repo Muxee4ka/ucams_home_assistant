@@ -1,16 +1,19 @@
 import asyncio
+import base64
+import json
 import logging
-import os
 import re
 import datetime
-from contextlib import suppress
+import shlex
+import subprocess
 
-from homeassistant.components.camera import Camera, CameraEntityFeature, _async_get_stream_image, Image
+import websockets
+from homeassistant.components.camera import Camera, CameraEntityFeature, _async_get_stream_image
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.util.dt import now
 
 from . import UcamsApi
 from .utils import TOKEN_REFRESH_BUFFER, DOMAIN, TIMEOUT
@@ -95,4 +98,47 @@ class Ucams(Camera):
                 return
 
             return image
+
+    async def handle_snapshot_from_ws(self):
+        """Получение скриншота с потока камеры через websocket"""
+        uri = await self.cameras_api.get_camera_stream_ws_url(self.camera_id)
+        async with asyncio.timeout(TIMEOUT):
+            async with websockets.connect(uri) as websocket:
+                # Получение и обработка инициализационного сегмента
+                await websocket.send("resume")
+                init_segment_msg = await websocket.recv()
+                init_segment = json.loads(init_segment_msg)
+                init_payload = init_segment['tracks'][0]['payload']
+                init_data = base64.b64decode(init_payload)
+
+                # Настройка FFmpeg для извлечения одного кадра
+                command = r'ffmpeg -i - -vf "select=eq(n\,0)" -vframes 1 -f image2 -'
+                ffmpeg_cmd = subprocess.Popen(
+                    shlex.split(command),
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    shell=False
+                )
+
+                try:
+                    # Передача инициализационного сегмента
+                    ffmpeg_cmd.stdin.write(init_data)
+
+                    while True:
+                        message = await websocket.recv()
+                        if isinstance(message, bytes):
+                            ffmpeg_cmd.stdin.write(message)
+                            break
+                        else:
+                            _LOGGER.debug("Non-bytes message received: %s", message)
+                    output_stream, error_stream = ffmpeg_cmd.communicate()
+                    output_bytes = output_stream
+                    return output_bytes
+
+                except websockets.ConnectionClosed:
+                    _LOGGER.error("WebSocket connection closed")
+                finally:
+                    ffmpeg_cmd.terminate()
+                    ffmpeg_cmd.wait()
 

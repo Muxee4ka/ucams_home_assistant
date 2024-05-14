@@ -20,8 +20,10 @@ from custom_components.ucams.utils import (
     TOKEN_REFRESH_BUFFER,
     USER_AGENT,
     VIDEO,
+    WS_VIDEO,
     SCREEN, decode_token,
 )
+
 _LOGGER = logging.getLogger(__name__)
 _LOGGER.setLevel(logging.INFO)
 
@@ -122,6 +124,7 @@ class UcamsApi:
 
             cameras_info = r.json()
             scheme = 'https'
+            ws_scheme = "wss"
             for camera_info in cameras_info['results']:
                 cam_id = camera_info["number"]
                 token_l = camera_info["token_l"]
@@ -132,6 +135,21 @@ class UcamsApi:
                 path = join(cam_id, 'tracks-v1', 'mono.m3u8')
                 query_video = urlencode({'token': token_l})
                 url_video = urlunparse((scheme, domain, path, '', query_video, ''))
+                ws_video = urlunparse(
+                    (
+                        ws_scheme,
+                        domain,
+                        join(cam_id, "mse_ld"),
+                        '',
+                        urlencode(
+                            {
+                                'tracks': 'a1v1',
+                                'realtime': 'true',
+                                'token': token_l,
+                            }),
+                        ""
+                    )
+                )
 
                 path_screenshot = join("api", "v0", "screenshots", f"{cam_id}~600.jpg")
                 query_screenshot = urlencode({'token': token_l})
@@ -141,6 +159,7 @@ class UcamsApi:
                     "id": cam_id,
                     "title": title,
                     "url_video": url_video,
+                    "url_ws_video": ws_video,
                     "url_screen": url_screen,
                     "token_l": token_l
                 }
@@ -169,6 +188,10 @@ class UcamsApi:
             await self.get_cameras_info()
             camera_info = await self.get_camera_info(camera_id)
         return camera_info.get(f"url_{url_type}")
+
+    async def get_camera_stream_ws_url(self, camera_id: str) -> str | None:
+        result = await self.get_camera_url(camera_id, WS_VIDEO)
+        return result
 
     async def get_camera_stream_url(self, camera_id: str):
         result = await self.get_camera_url(camera_id, VIDEO)

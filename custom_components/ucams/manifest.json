@@ -4,6 +4,6 @@
     "documentation": "https://github.com/Muxee4ka/ucams_home_assistant",
     "iot_class": "cloud_polling",
     "version": "0.0.1",
-    "requirements": ["transliterate", "pyjwt"],
+    "requirements": ["transliterate", "pyjwt", "websockets"],
     "config_flow": true
 }
