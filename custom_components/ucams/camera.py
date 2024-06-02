@@ -112,7 +112,7 @@ class Ucams(Camera):
                 init_data = base64.b64decode(init_payload)
 
                 # Настройка FFmpeg для извлечения одного кадра
-                command = r'ffmpeg -i - -vf "select=eq(n\,0)" -vframes 1 -f image2 -'
+                command = r'ffmpeg -i - -vf "select=eq(n\,0),unsharp" -vframes 1 -q:v 2 -f image2 -'
                 ffmpeg_cmd = subprocess.Popen(
                     shlex.split(command),
                     stdin=subprocess.PIPE,
