@@ -1,6 +1,6 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 
-<img alt="tns_energo 1" src="images/ucams.webp" width="500"/>
+![ucams 1](images/icons/logo.png)
 
 Этот репозиторий содержит настраиваемый компонент для Home Assistant для отображения Видеонаблюдения от Уфанет.
 
