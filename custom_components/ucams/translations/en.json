@@ -12,6 +12,7 @@
             "user": {
                 "data": {
                     "link": "Ucams link",
+                    "dom_link": "Ufanet dom link",
                     "password": "password",
                     "username": "username",
                     "camera_image_refresh_interval": "Camera refresh interval"

@@ -5,6 +5,7 @@ import jwt
 
 CONF_NAME = "name"
 CONF_URL = "link"
+CONF_DOM_URL = "dom_link"
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_CAMERA_IMAGE_REFRESH_INTERVAL = "camera_image_refresh_interval"
