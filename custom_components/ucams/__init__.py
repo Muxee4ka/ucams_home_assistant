@@ -8,22 +8,25 @@ from homeassistant.const import Platform, ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
 
 from custom_components.ucams.ucams import UcamsApi
+from custom_components.ucams.ufanet import DomApi
 from custom_components.ucams.utils import (
     CONF_URL,
+    CONF_DOM_URL,
     CONF_NAME,
     CONF_USERNAME,
     CONF_PASSWORD,
     CONF_CAMERA_IMAGE_REFRESH_INTERVAL, DOMAIN
 )
 
-PLATFORMS: list[str] = [Platform.IMAGE, Platform.CAMERA]
+PLATFORMS: list[str] = [Platform.IMAGE, Platform.CAMERA, Platform.SWITCH]
 
 DATA_SCHEMA = {
     vol.Required(CONF_NAME, default="Ucams"): str,
 }
 
 OPTIONS_SCHEMA = {
-    vol.Required(CONF_URL, msg="Domain url", default="https://ucams.ufanet.ru"): str,
+    vol.Required(CONF_URL, msg="Ucams url", default="https://ucams.ufanet.ru"): str,
+    vol.Required(CONF_DOM_URL, msg="Dom url", default="https://dom.ufanet.ru"): str,
     vol.Required(CONF_USERNAME, msg="Username"): str,
     vol.Required(CONF_PASSWORD, msg="Password"): str,
     vol.Required(CONF_CAMERA_IMAGE_REFRESH_INTERVAL, msg="Refresh interval", default=60): int,
@@ -36,7 +39,8 @@ _LOGGER.setLevel(logging.INFO)
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     _LOGGER.info(["async_setup_entry", config_entry.data, config_entry.options])
     hass.data[config_entry.entry_id] = {
-        "cameras_api": UcamsApi(hass, config_entry)
+        "cameras_api": UcamsApi(hass, config_entry),
+        "dom_api": DomApi(hass, config_entry)
     }
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
     return True
