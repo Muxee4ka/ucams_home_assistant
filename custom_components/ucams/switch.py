@@ -13,6 +13,7 @@ from . import UcamsApi, DomApi, DOMAIN
 _LOGGER = logging.getLogger(__name__)
 _LOGGER.setLevel(logging.INFO)
 
+
 async def async_setup_entry(hass, config_entry, async_add_entities):
     dom_api = hass.data[config_entry.entry_id]["dom_api"]
     cameras_api = hass.data[config_entry.entry_id]["cameras_api"]

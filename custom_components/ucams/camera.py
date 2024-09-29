@@ -8,7 +8,11 @@ import shlex
 import subprocess
 
 import websockets
-from homeassistant.components.camera import Camera, CameraEntityFeature, _async_get_stream_image
+from homeassistant.components.camera import (
+    Camera,
+    CameraEntityFeature,
+    _async_get_stream_image,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -20,6 +24,7 @@ from .utils import TOKEN_REFRESH_BUFFER, DOMAIN, TIMEOUT
 
 _LOGGER = logging.getLogger(__name__)
 _LOGGER.setLevel(logging.INFO)
+
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     cameras_api = hass.data[config_entry.entry_id]["cameras_api"]
@@ -33,11 +38,11 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 class Ucams(Camera):
     def __init__(
-            self,
-            hass: HomeAssistant,
-            config_entry: ConfigEntry,
-            cameras_api: UcamsApi,
-            camera_info: dict,
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        cameras_api: UcamsApi,
+        camera_info: dict,
     ) -> None:
         super().__init__()
 
@@ -47,9 +52,9 @@ class Ucams(Camera):
         self.camera_id = camera_info["id"]
         self.device_name = cameras_api.build_device_name(camera_info["title"])
         self.entity_id = (
-                DOMAIN
-                + "."
-                + re.sub("[^a-zA-z0-9]+", "_", self.device_name).rstrip("_").lower()
+            DOMAIN
+            + "."
+            + re.sub("[^a-zA-z0-9]+", "_", self.device_name).rstrip("_").lower()
         )
 
         self._attr_unique_id = f"camera-{self.entity_id}"
@@ -80,7 +85,7 @@ class Ucams(Camera):
         return url
 
     async def async_camera_image(
-            self, width: int | None = None, height: int | None = None
+        self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
         return await self.cameras_api.get_camera_image(self.camera_id)
 
@@ -108,7 +113,7 @@ class Ucams(Camera):
                 await websocket.send("resume")
                 init_segment_msg = await websocket.recv()
                 init_segment = json.loads(init_segment_msg)
-                init_payload = init_segment['tracks'][0]['payload']
+                init_payload = init_segment["tracks"][0]["payload"]
                 init_data = base64.b64decode(init_payload)
 
                 # Настройка FFmpeg для извлечения одного кадра
@@ -118,7 +123,7 @@ class Ucams(Camera):
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    shell=False
+                    shell=False,
                 )
 
                 try:
@@ -141,4 +146,3 @@ class Ucams(Camera):
                 finally:
                     ffmpeg_cmd.terminate()
                     ffmpeg_cmd.wait()
-

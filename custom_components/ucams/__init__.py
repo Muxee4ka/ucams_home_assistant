@@ -15,7 +15,8 @@ from custom_components.ucams.utils import (
     CONF_NAME,
     CONF_USERNAME,
     CONF_PASSWORD,
-    CONF_CAMERA_IMAGE_REFRESH_INTERVAL, DOMAIN
+    CONF_CAMERA_IMAGE_REFRESH_INTERVAL,
+    DOMAIN,
 )
 
 PLATFORMS: list[str] = [Platform.IMAGE, Platform.CAMERA, Platform.SWITCH]
@@ -25,11 +26,12 @@ DATA_SCHEMA = {
 }
 
 OPTIONS_SCHEMA = {
-    vol.Required(CONF_URL, msg="Ucams url", default="https://ucams.ufanet.ru"): str,
     vol.Required(CONF_DOM_URL, msg="Dom url", default="https://dom.ufanet.ru"): str,
     vol.Required(CONF_USERNAME, msg="Username"): str,
     vol.Required(CONF_PASSWORD, msg="Password"): str,
-    vol.Required(CONF_CAMERA_IMAGE_REFRESH_INTERVAL, msg="Refresh interval", default=60): int,
+    vol.Required(
+        CONF_CAMERA_IMAGE_REFRESH_INTERVAL, msg="Refresh interval", default=60
+    ): int,
 }
 
 _LOGGER = logging.getLogger(__name__)
@@ -38,9 +40,10 @@ _LOGGER.setLevel(logging.INFO)
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     _LOGGER.info(["async_setup_entry", config_entry.data, config_entry.options])
+    ufanet_api = DomApi(hass, config_entry)
     hass.data[config_entry.entry_id] = {
-        "cameras_api": UcamsApi(hass, config_entry),
-        "dom_api": DomApi(hass, config_entry)
+        "cameras_api": UcamsApi(hass, config_entry, ufanet_api),
+        "dom_api": ufanet_api,
     }
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
     return True
@@ -59,7 +62,7 @@ async def async_setup(hass: HomeAssistant, config_entry: ConfigEntry):
         entity_id = call.data.get(ATTR_ENTITY_ID)
         if isinstance(entity_id, list):
             entity_id = entity_id[0]
-        camera = hass.data['camera'].get_entity(entity_id)
+        camera = hass.data["camera"].get_entity(entity_id)
         filename = call.data[ATTR_FILENAME]
 
         image = await camera.handle_snapshot_from_ws()
