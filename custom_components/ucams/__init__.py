@@ -65,7 +65,7 @@ async def async_setup(hass: HomeAssistant, config_entry: ConfigEntry):
         camera = hass.data["camera"].get_entity(entity_id)
         filename = call.data[ATTR_FILENAME]
 
-        image = await camera.handle_snapshot_from_ws()
+        image = await camera.handle_snapshot()
 
         def _write_image(to_file: str, image_data: bytes) -> None:
             """Executor helper to write image."""
