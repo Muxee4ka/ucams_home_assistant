@@ -40,11 +40,13 @@ class UcamsCameraImageEntity(ImageEntity):
             DOMAIN
             + "."
             + re.sub("[^a-zA-z0-9]+", "_", self.device_name).rstrip("_").lower()
+            + "."
+            + str(self.camera_id)
         )
         self.camera_image_refresh_interval = config_entry.options[
             CONF_CAMERA_IMAGE_REFRESH_INTERVAL
         ]
-        self._attr_unique_id = f"image-{self.entity_id}"
+        self._attr_unique_id = f"image-{self.camera_id}"
         self._attr_name = self.device_name
 
     async def async_image(self) -> bytes | None:

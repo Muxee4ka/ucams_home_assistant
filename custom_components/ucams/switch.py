@@ -21,6 +21,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     entities = []
     for skud_info in skud_list:
         camera_id = skud_info.get("cctv_number")
+        _LOGGER.debug(f"SKUD: {skud_info}")
+        _LOGGER.debug(f"Camera ID: {camera_id}")
         camera_info = (
             await cameras_api.get_camera_info(camera_id) if camera_id else None
         )
@@ -60,8 +62,10 @@ class DomUfanetSwitchEntity(SwitchEntity):
             DOMAIN
             + "."
             + re.sub("[^a-zA-z0-9]+", "_", self.device_name).rstrip("_").lower()
+            + "."
+            + str(self.skud_id)
         )
-        self._attr_unique_id = f"switch-{self.entity_id}"
+        self._attr_unique_id = f"switch-{self.skud_id}"
         self._attr_name = self.device_name
         self._attr_is_on = False
         self.time_out = skud_info["timeout"]

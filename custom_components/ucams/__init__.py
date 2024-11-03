@@ -30,7 +30,7 @@ OPTIONS_SCHEMA = {
     vol.Required(CONF_USERNAME, msg="Username"): str,
     vol.Required(CONF_PASSWORD, msg="Password"): str,
     vol.Required(
-        CONF_CAMERA_IMAGE_REFRESH_INTERVAL, msg="Refresh interval", default=60
+        CONF_CAMERA_IMAGE_REFRESH_INTERVAL, msg="Refresh interval", default=600
     ): int,
 }
 

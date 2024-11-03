@@ -93,6 +93,7 @@ class DomApi:
             skud_list: Response = await self.hass.async_add_executor_job(
                 partial(session.get, url)
             )
+            _LOGGER.debug(skud_list.json())
             skud_list.raise_for_status()
             return skud_list.json()
 

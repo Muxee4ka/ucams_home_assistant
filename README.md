@@ -24,3 +24,22 @@
 или нажмите:
 
 [![Добавить интеграцию](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start?domain=ucams)
+
+# Автоматизации
+
+```yaml
+alias: Сделать снимок камеры 1
+description: ""
+trigger:
+  - platform: time
+    at: "01:00:00"
+condition:
+  - condition: template
+    value_template: "{{ now().day == 24 }}"
+action:
+  target:
+  entity_id: camera.ucams_kamera_1
+  data:
+    filename: www/kamera_1.png
+  action: ucams.snapshot
+```
