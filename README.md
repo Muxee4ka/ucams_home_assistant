@@ -43,3 +43,7 @@ action:
     filename: www/kamera_1.png
   action: ucams.snapshot
 ```
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Muxee4ka/ucams_home_assistant&type=Timeline)](https://star-history.com/#Muxee4ka/ucams_home_assistant&Timeline)
