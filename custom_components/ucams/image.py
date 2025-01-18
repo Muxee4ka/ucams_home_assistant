@@ -71,4 +71,5 @@ class UcamsCameraImageEntity(ImageEntity):
         return {
             "identifiers": {(DOMAIN, f"{self.config_entry_id}_{self.camera_id}")},
             "name": self.device_name,
+            "manufacturer": "Ufanet",
         }

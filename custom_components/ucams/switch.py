@@ -101,4 +101,5 @@ class DomUfanetSwitchEntity(SwitchEntity):
                 )
             },
             "name": self.device_name,
+            "manufacturer": "Ufanet",
         }
