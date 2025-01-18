@@ -9,7 +9,7 @@
 **Способ 1.** Через [HACS](https://hacs.xyz/) &rarr; Интеграции &rarr; Добавить пользовательский
 репозиторий &rarr; https://github.com/Muxee4ka/ucams_home_assistant &rarr; **Ucams** &rarr; Установить
 
-**Способ 2.** Вручную скопируйте папку `tns_energo`
+**Способ 2.** Вручную скопируйте папку `ucams`
 из [latest release](https://github.com/Muxee4ka/ucams_home_assistant/releases/latest) в
 директорию `/config/custom_components`.
 
