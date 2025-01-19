@@ -16,13 +16,6 @@ jobs:
     runs-on: ubuntu-latest  # Операционная система для выполнения тестов
 
     steps:
-      - name: Cache dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
       # 1. Клонирование репозитория
       - name: Checkout code
         uses: actions/checkout@v3
@@ -32,6 +25,13 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.12'  # Укажите версию Python
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       # 3. Установка зависимостей
       - name: Install dependencies
