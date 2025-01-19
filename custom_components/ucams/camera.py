@@ -1,17 +1,12 @@
-import asyncio
-import base64
-import json
+import datetime
 import logging
 import re
-import datetime
 import shlex
 import subprocess
 
-import websockets
 from homeassistant.components.camera import (
     Camera,
     CameraEntityFeature,
-    _async_get_stream_image,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -20,7 +15,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util.dt import now
 
 from . import UcamsApi
-from .utils import TOKEN_REFRESH_BUFFER, DOMAIN, TIMEOUT
+from .utils import TOKEN_REFRESH_BUFFER, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 _LOGGER.setLevel(logging.INFO)
@@ -38,11 +33,11 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 class Ucams(Camera):
     def __init__(
-        self,
-        hass: HomeAssistant,
-        config_entry: ConfigEntry,
-        cameras_api: UcamsApi,
-        camera_info: dict,
+            self,
+            hass: HomeAssistant,
+            config_entry: ConfigEntry,
+            cameras_api: UcamsApi,
+            camera_info: dict
     ) -> None:
         super().__init__()
 
@@ -52,11 +47,11 @@ class Ucams(Camera):
         self.camera_id = camera_info["id"]
         self.device_name = cameras_api.build_device_name(camera_info["title"])
         self.entity_id = (
-            DOMAIN
-            + "."
-            + re.sub("[^a-zA-z0-9]+", "_", self.device_name).rstrip("_").lower()
-            + "."
-            + str(self.camera_id)
+                DOMAIN
+                + "."
+                + re.sub("[^a-zA-z0-9]+", "_", self.device_name).rstrip("_").lower()
+                + "."
+                + str(self.camera_id)
         )
 
         self._attr_unique_id = f"camera-{self.camera_id}"
@@ -69,12 +64,12 @@ class Ucams(Camera):
         )
 
     async def _stream_refresh(self, now: datetime.datetime) -> None:
-        _LOGGER.info(
+        _LOGGER.debug(
             "Checking if stream url should be updated for camera %s", self.camera_id
         )
         url = await self.stream_source()
         if self.stream and self.stream.source != url:
-            _LOGGER.info("Updating camera %s stream source to %s", self.camera_id, url)
+            _LOGGER.debug("Updating camera %s stream source to %s", self.camera_id, url)
             self.stream.update_source(url)
 
     async def async_will_remove_from_hass(self) -> None:
@@ -83,11 +78,11 @@ class Ucams(Camera):
 
     async def stream_source(self) -> str | None:
         url = await self.cameras_api.get_camera_stream_url(self.camera_id)
-        _LOGGER.info("Camera %s stream source is %s", self.camera_id, url)
+        _LOGGER.debug("Camera %s stream source is %s", self.camera_id, url)
         return url
 
     async def async_camera_image(
-        self, width: int | None = None, height: int | None = None
+            self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
         return await self.cameras_api.get_camera_image(self.camera_id)
 
@@ -96,55 +91,57 @@ class Ucams(Camera):
         return {
             "identifiers": {(DOMAIN, f"{self.config_entry_id}_{self.camera_id}")},
             "name": self.device_name,
+            "manufacturer": "Ufanet",
         }
 
-    async def handle_snapshot(self):
-        async with asyncio.timeout(TIMEOUT):
-            image = await _async_get_stream_image(self, wait_for_next_keyframe=True)
-            if image is None:
-                return
+    async def handle_snapshot_from_rtsp(self) -> bytes | None:
+        """
+        Получение снимка из RTSP потока камеры с использованием FFmpeg.
+        :return: Снимок в виде байтов или None при ошибке.
+        """
+        rtsp_url = await self.cameras_api.get_camera_stream_url(self.camera_id)  # Получение RTSP URL потока
+        if not rtsp_url:
+            _LOGGER.error("RTSP URL не найден для камеры %s", self.camera_id)
+            return None
 
-            return image
+        command = (
+            f"ffmpeg -i {shlex.quote(rtsp_url)} -vf 'select=eq(n\\,0)' "
+            f"-vframes 1 -q:v 2 -f image2 -"
+        )
 
-    async def handle_snapshot_from_ws(self):
-        """Получение скриншота с потока камеры через websocket"""
-        uri = await self.cameras_api.get_camera_stream_ws_url(self.camera_id)
-        async with asyncio.timeout(TIMEOUT):
-            async with websockets.connect(uri) as websocket:
-                # Получение и обработка инициализационного сегмента
-                await websocket.send("resume")
-                init_segment_msg = await websocket.recv()
-                init_segment = json.loads(init_segment_msg)
-                init_payload = init_segment["tracks"][0]["payload"]
-                init_data = base64.b64decode(init_payload)
+        _LOGGER.debug("Выполняется команда FFmpeg для RTSP: %s", command)
 
-                # Настройка FFmpeg для извлечения одного кадра
-                command = r'ffmpeg -i - -vf "select=eq(n\,0),unsharp" -vframes 1 -q:v 2 -f image2 -'
-                ffmpeg_cmd = subprocess.Popen(
-                    shlex.split(command),
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    shell=False,
+        # Запуск FFmpeg процесса
+        ffmpeg_cmd = subprocess.Popen(
+            shlex.split(command),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        try:
+            output_stream, error_stream = ffmpeg_cmd.communicate(timeout=15)  # Тайм-аут 15 секунд
+
+            if ffmpeg_cmd.returncode != 0:
+                _LOGGER.error(
+                    "Ошибка FFmpeg для камеры %s: %s",
+                    self.camera_id,
+                    error_stream.decode()
                 )
+                return None
 
-                try:
-                    # Передача инициализационного сегмента
-                    ffmpeg_cmd.stdin.write(init_data)
+            _LOGGER.info("Снимок успешно получен для камеры %s", self.camera_id)
+            return output_stream
 
-                    while True:
-                        message = await websocket.recv()
-                        if isinstance(message, bytes):
-                            ffmpeg_cmd.stdin.write(message)
-                            break
-                        else:
-                            _LOGGER.debug("Non-bytes message received: %s", message)
-                    output_stream, error_stream = ffmpeg_cmd.communicate()
-                    output_bytes = output_stream
-                    return output_bytes
+        except subprocess.TimeoutExpired:
+            _LOGGER.error("FFmpeg для камеры %s превысил тайм-аут", self.camera_id)
+            ffmpeg_cmd.terminate()
+            return None
 
-                except websockets.ConnectionClosed:
-                    _LOGGER.error("WebSocket connection closed")
-                finally:
-                    ffmpeg_cmd.terminate()
-                    ffmpeg_cmd.wait()
+        except Exception as e:
+            _LOGGER.error("Ошибка при выполнении FFmpeg для камеры %s: %s", self.camera_id, e)
+            return None
+
+        finally:
+            ffmpeg_cmd.terminate()
+            ffmpeg_cmd.wait()
