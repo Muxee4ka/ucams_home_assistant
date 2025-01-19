@@ -3,7 +3,6 @@ import asyncio
 
 import pytest
 from aiohttp import ClientSession
-from custom_components.ucams.ucams import UcamsApi
 from homeassistant.config_entries import ConfigEntry
 
 
@@ -54,4 +53,5 @@ def mock_ufanet_api():
 
 @pytest.fixture
 def ucams_api(hass, config_entry, mock_ufanet_api):
+    from custom_components.ucams.ucams import UcamsApi
     return UcamsApi(hass, config_entry, mock_ufanet_api)
