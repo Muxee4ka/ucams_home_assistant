@@ -5,7 +5,6 @@ import pytest
 from aiohttp import ClientSession
 from custom_components.ucams.ucams import UcamsApi
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
 
 
 @pytest.fixture(scope="session")
@@ -18,6 +17,7 @@ def event_loop():
 
 @pytest.fixture
 async def hass(tmp_path):
+    from homeassistant.core import HomeAssistant
     """Создаёт и инициализирует объект Home Assistant."""
     hass = HomeAssistant(config_dir=str(tmp_path))
     await hass.async_start()  # Запускаем HomeAssistant
