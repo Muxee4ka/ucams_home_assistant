@@ -4,3 +4,4 @@ aioresponses
 homeassistant==2024.4.4
 aiohttp
 numpy
+transliterate
