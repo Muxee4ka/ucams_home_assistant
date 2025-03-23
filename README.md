@@ -70,3 +70,7 @@ action:
       message: "Архив за последний час: [Открыть архив]({{ state_attr('sensor.archive_link_kamera16_3podezd_kryltso', 'archive_url') }})"
 mode: single
 ```
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Muxee4ka/ucams_home_assistant&type=Timeline)](https://star-history.com/#Muxee4ka/ucams_home_assistant&Timeline)
