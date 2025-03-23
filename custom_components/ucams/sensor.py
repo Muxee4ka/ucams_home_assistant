@@ -1,7 +1,12 @@
+import logging
 from datetime import datetime
 
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.helpers.device_registry import DeviceInfo
+
 from .utils import DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -21,6 +26,22 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             for service in detail["services"]:
                 sensors.append(ServiceDetailSensor(hass, contract, service))
 
+    cameras_api = hass.data[config_entry.entry_id]["cameras_api"]
+    cameras_info = hass.data[config_entry.entry_id]["cameras_info"]
+    if not cameras_api:
+        _LOGGER.error("cameras_api не найден")
+        return
+    if not cameras_info:
+        _LOGGER.error("cameras_info не найден")
+        return
+    for camera in cameras_info.values():
+        camera_id = camera["id"]
+        device_name = camera["title"]
+        archive_sensor = ArchiveLinkSensor(config_entry.entry_id, camera_id, device_name)
+        sensors.append(archive_sensor)
+
+        hass.data[config_entry.entry_id].setdefault("archive_link_sensors", {})[camera_id] = archive_sensor
+
     async_add_entities(sensors)
 
 
@@ -39,7 +60,15 @@ class ContractDetailSensor(SensorEntity):
         contract_address = detail["contract_address"]
 
         address = ", ".join(
-            filter(None, [contract_address.get("city"), contract_address.get("street"), contract_address.get("house"), contract_address.get("flat")])
+            filter(
+                None,
+                [
+                    contract_address.get("city"),
+                    contract_address.get("street"),
+                    contract_address.get("house"),
+                    contract_address.get("flat")
+                ]
+            )
         )
         return {
             "Адрес": address,
@@ -89,5 +118,45 @@ class ServiceDetailSensor(SensorEntity):
         return {
             "identifiers": {(DOMAIN, f"contract_{self.contract['contract_id']}")},
             "name": f"Договор {self.contract['title']}",
+            "manufacturer": "Ufanet",
+        }
+
+
+class ArchiveLinkSensor(SensorEntity):
+    def __init__(self, config_entry_id: str, camera_id: str, device_name: str):
+        self._config_entry_id = config_entry_id
+        self._camera_id = camera_id
+        self._device_name = device_name
+        self._attr_name = f"Archive Link {device_name}"
+        self._attr_unique_id = f"archive_link_sensor_{camera_id}"
+        self._state = None
+        self._attrs = {}
+
+    @property
+    def state(self):
+        return self._state
+
+    @property
+    def extra_state_attributes(self):
+        return self._attrs
+
+    def update_link(self, link: str, comment: str = None):
+        self._state = "available"
+        self._attrs["archive_url"] = link
+        self._attrs["updated"] = datetime.now().isoformat()
+        if comment:
+            self._attrs["comment"] = comment
+        else:
+            self._attrs["comment"] = "Archive generated"
+        self.async_write_ha_state()
+
+    async def async_update(self):
+        pass
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return {
+            "identifiers": {(DOMAIN, f"{self._config_entry_id}_{self._camera_id}")},
+            "name": self._device_name,
             "manufacturer": "Ufanet",
         }

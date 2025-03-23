@@ -1,0 +1,8 @@
+pytest
+pytest-asyncio
+aioresponses
+homeassistant==2024.4.4
+aiohttp
+numpy
+transliterate
+josepy<2.0.0

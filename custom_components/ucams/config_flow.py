@@ -1,3 +1,5 @@
+import logging
+
 import voluptuous as vol
 from homeassistant.config_entries import (
     ConfigEntry,
@@ -9,10 +11,13 @@ from homeassistant.core import callback
 from . import DATA_SCHEMA, OPTIONS_SCHEMA
 from .utils import DOMAIN
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class UcamsOptionsFlow(OptionsFlowWithConfigEntry):
     async def async_step_init(self, user_input):
         if user_input is not None:
+            _LOGGER.debug("OptionsFlow: %s", user_input)
             return self.async_create_entry(
                 title=self.config_entry.data["name"],
                 data=user_input,
@@ -41,6 +46,7 @@ class UcamsConfigFlow(ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input):
         if user_input is not None:
+            _LOGGER.debug("ConfigFlow: %s", user_input)
             return self.async_create_entry(
                 title=user_input["name"], data=user_input, options=user_input
             )
