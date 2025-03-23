@@ -1,6 +1,4 @@
-import asyncio
 import logging
-from functools import partial
 from pprint import pformat
 from time import time
 from urllib.parse import urljoin
@@ -18,11 +16,10 @@ from custom_components.ucams.utils import (
     VIDEO,
     WS_VIDEO,
     SCREEN,
-    decode_token,
-)
+    decode_token, )
 
 _LOGGER = logging.getLogger(__name__)
-_LOGGER.setLevel(logging.INFO)
+
 
 HEADERS = {
     "Accept-Language": "ru_RU",
@@ -70,7 +67,8 @@ class UcamsApi:
             self.session.headers["Authorization"] = f"Bearer {self.token}"
 
     async def get_authenticated_session(self):
-        now = asyncio.get_running_loop().time()
+        now = int(time())
+        _LOGGER.debug(f"Token expiration: {self.token_expiration}. Now: {now}")
         if (
                 not self.token
                 or now >= self.token_expiration - TOKEN_REFRESH_BUFFER
@@ -143,6 +141,7 @@ class UcamsApi:
             self.cameras[cam_id] = {
                 "id": cam_id,
                 "title": title,
+                "domain": domain,
                 "url_video": rtsp_link,
                 "url_ws_video": ws_video,
                 "url_screen": url_screen,
@@ -163,16 +162,49 @@ class UcamsApi:
         return self.cameras.get(camera_id)
 
     async def get_camera_url(self, camera_id: str, url_type: str) -> str | None:
+        """Get camera URL by camera ID and URL type."""
+
+        # Загружаем информацию о камере
         camera_info = await self.get_camera_info(camera_id)
-        _LOGGER.debug(pformat(camera_info))
+
         if not camera_info:
+            _LOGGER.error(f"Camera {camera_id} not found.")
             return None
+
         now = int(time())
-        token_exp = decode_token(camera_info["token_l"]).get("exp")
-        if token_exp and (int(token_exp) - now) < TOKEN_REFRESH_BUFFER:
-            await self.get_cameras_info()
-            camera_info = await self.get_camera_info(camera_id)
-        return camera_info.get(f"url_{url_type}")
+
+        # Проверяем срок действия `token_l`
+        token_exp = self._decode_token_exp(camera_info.get("token_l"))
+        if token_exp and (token_exp - now) < TOKEN_REFRESH_BUFFER:
+            _LOGGER.warning(f"Camera token {camera_id} is about to expire ({token_exp - now} sec), refreshing cameras list.")
+            await self.get_cameras_info()  # Обновляем информацию о камерах
+            camera_info = await self.get_camera_info(camera_id)  # Повторно загружаем камеру
+
+        # Проверяем, обновился ли `token_l`
+        token_exp = self._decode_token_exp(camera_info.get("token_l"))
+        if not token_exp or (token_exp - now) < TOKEN_REFRESH_BUFFER:
+            _LOGGER.error(f"Failed to update token for camera {camera_id}.")
+            return None
+
+        # Получаем URL нужного типа
+        url_key = f"url_{url_type}"
+        url = camera_info.get(url_key)
+
+        if not url:
+            _LOGGER.error(f"URL ({url_type}) not found for camera {camera_id}.")
+        else:
+            _LOGGER.debug(f"URL ({url_type}) for camera {camera_id}: {url}")
+
+        return url
+
+    def _decode_token_exp(self, token: str) -> int | None:
+        """Decode token and return expiration time."""
+        try:
+            decoded = decode_token(token)
+            return int(decoded.get("exp", 0))
+        except Exception as e:
+            _LOGGER.error(f"Token decoding error: {e}")
+            return None
 
     async def get_camera_stream_ws_url(self, camera_id: str) -> str | None:
         result = await self.get_camera_url(camera_id, WS_VIDEO)
@@ -190,3 +222,50 @@ class UcamsApi:
                 resp.raise_for_status()
                 content = await resp.read()
                 return content
+
+    async def get_camera_archive(self, camera_id: str, start_time: int, delta_time: int):
+        """Get archive"""
+        session = await self.get_authenticated_session()
+        camera_info = await self.get_camera_info(camera_id)
+        _LOGGER.debug(camera_info)
+        domain = camera_info.get("domain")
+        params = {
+            'lang': 'ru',
+        }
+
+        json_data = {
+            'fields': [
+                'token_d',
+            ],
+            'token_d_ttl': 3600,
+            'token_d_duration': delta_time,
+            'token_d_start': start_time,
+            'numbers': [
+                camera_id,
+            ],
+        }
+        _LOGGER.debug(json_data)
+
+        async with session.post(f'{self.cams_server}/api/v0/cameras/this/', params=params, json=json_data) as response:
+            status_code = response.status
+            if status_code == 401:
+                _LOGGER.error("Authentication failed. Trying to re-authenticate")
+
+                await self._authenticate()
+                return await self.get_camera_archive(camera_id, start_time, delta_time)
+            response.raise_for_status()
+            response_data = await response.json()
+            _LOGGER.debug(f"Archive response: {response_data}")
+            result = response_data.get('results', [])
+            if not result:
+                return None
+            for item in result:
+                if item['number'] == camera_id:
+                    params = {
+                        'token': item['token_d'],
+                    }
+
+                    file_extension = '.mp4' if delta_time <= 3600 else '.ts'
+                    archive_url = f'https://{domain}/{item.get("number")}/archive-{start_time}-{delta_time}{file_extension}?token={item["token_d"]}'
+                    _LOGGER.debug(archive_url)
+                    return archive_url

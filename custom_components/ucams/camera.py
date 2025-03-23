@@ -6,7 +6,7 @@ import subprocess
 
 from homeassistant.components.camera import (
     Camera,
-    CameraEntityFeature,
+    CameraEntityFeature, _async_get_stream_image,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -18,7 +18,7 @@ from . import UcamsApi
 from .utils import TOKEN_REFRESH_BUFFER, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
-_LOGGER.setLevel(logging.INFO)
+
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -62,6 +62,7 @@ class Ucams(Camera):
             self._stream_refresh,
             datetime.timedelta(seconds=TOKEN_REFRESH_BUFFER),
         )
+        self._entity_picture = None
 
     async def _stream_refresh(self, now: datetime.datetime) -> None:
         _LOGGER.debug(
@@ -84,7 +85,16 @@ class Ucams(Camera):
     async def async_camera_image(
             self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
-        return await self.cameras_api.get_camera_image(self.camera_id)
+        return await _async_get_stream_image(self, wait_for_next_keyframe=True)
+
+    async def async_update(self):
+        """ Update camera entity. """
+        self._entity_picture = self.cameras_api.get_camera_image(self.camera_id)
+
+    @property
+    def entity_picture(self) -> str | None:
+        """ Return the camera image URL. """
+        return self._entity_picture
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -96,8 +106,7 @@ class Ucams(Camera):
 
     async def handle_snapshot_from_rtsp(self) -> bytes | None:
         """
-        Получение снимка из RTSP потока камеры с использованием FFmpeg.
-        :return: Снимок в виде байтов или None при ошибке.
+        Get snapshot from RTSP stream.
         """
         rtsp_url = await self.cameras_api.get_camera_stream_url(self.camera_id)  # Получение RTSP URL потока
         if not rtsp_url:
@@ -145,3 +154,11 @@ class Ucams(Camera):
         finally:
             ffmpeg_cmd.terminate()
             ffmpeg_cmd.wait()
+
+    async def get_camera_archive(self, start_time, duration):
+        archive_url = await self.cameras_api.get_camera_archive(self.camera_id, start_time, duration)
+        if not archive_url:
+            _LOGGER.error("ARCHIVE URL не получен для камеры %s", self.camera_id)
+            return None
+        return archive_url
+

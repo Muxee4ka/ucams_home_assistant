@@ -1,5 +1,8 @@
 import base64
 import json
+import functools
+import asyncio
+from transliterate import translit
 
 import jwt
 
@@ -23,3 +26,9 @@ def decode_token(token):
         return jwt.decode(token, options={"verify_signature": False})
     except:
         return json.loads(base64.b64decode(token.split(".")[0]).decode())
+
+
+async def async_transliterate(text) -> str:
+    """Асинхронный вариант translit()"""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, functools.partial(translit, text, "ru", reversed=True))

@@ -14,7 +14,7 @@ from custom_components.ucams.utils import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-_LOGGER.setLevel(logging.INFO)
+
 
 HEADERS = {
     "Connection": "Keep-Alive",
