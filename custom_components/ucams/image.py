@@ -36,13 +36,10 @@ class UcamsCameraImageEntity(ImageEntity):
         self.cameras_api = cameras_api
         self.camera_id = camera_info["id"]
         self.device_name = self.cameras_api.build_device_name(camera_info["title"])
-        self.entity_id = (
-            DOMAIN
-            + "."
-            + re.sub("[^a-zA-z0-9]+", "_", self.device_name).rstrip("_").lower()
-            + "."
-            + str(self.camera_id)
-        )
+        device_slug = re.sub(r"[^a-z0-9]+", "_", self.device_name.lower()).strip("_")
+        camera_slug = re.sub(r"[^a-z0-9]+", "_", str(self.camera_id).lower()).strip("_")
+        object_id = f"{device_slug}_{camera_slug}" if camera_slug else device_slug
+        self.entity_id = f"image.{object_id}"
         self.camera_image_refresh_interval = config_entry.options[
             CONF_CAMERA_IMAGE_REFRESH_INTERVAL
         ]

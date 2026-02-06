@@ -1,7 +1,7 @@
 pytest
 pytest-asyncio
 aioresponses
-homeassistant==2024.4.4
+homeassistant
 aiohttp
 numpy
 transliterate

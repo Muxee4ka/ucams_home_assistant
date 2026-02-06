@@ -57,13 +57,10 @@ class DomUfanetSwitchEntity(SwitchEntity):
             self.device_name = self.cameras_api.build_device_name(
                 skud_info["string_view"] + "_" + str(self.skud_id)
             )
-        self.entity_id = (
-            DOMAIN
-            + "."
-            + re.sub("[^a-zA-z0-9]+", "_", self.device_name).rstrip("_").lower()
-            + "."
-            + str(self.skud_id)
-        )
+        device_slug = re.sub(r"[^a-z0-9]+", "_", self.device_name.lower()).strip("_")
+        skud_slug = re.sub(r"[^a-z0-9]+", "_", str(self.skud_id).lower()).strip("_")
+        object_id = f"{device_slug}_{skud_slug}" if skud_slug else device_slug
+        self.entity_id = f"switch.{object_id}"
         self._attr_unique_id = f"switch-{self.skud_id}"
         self._attr_name = self.device_name
         self._attr_is_on = False
