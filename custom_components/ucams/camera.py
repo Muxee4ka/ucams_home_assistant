@@ -46,13 +46,10 @@ class Ucams(Camera):
         self.cameras_api = cameras_api
         self.camera_id = camera_info["id"]
         self.device_name = cameras_api.build_device_name(camera_info["title"])
-        self.entity_id = (
-                DOMAIN
-                + "."
-                + re.sub("[^a-zA-z0-9]+", "_", self.device_name).rstrip("_").lower()
-                + "."
-                + str(self.camera_id)
-        )
+        device_slug = re.sub(r"[^a-z0-9]+", "_", self.device_name.lower()).strip("_")
+        camera_slug = re.sub(r"[^a-z0-9]+", "_", str(self.camera_id).lower()).strip("_")
+        object_id = f"{device_slug}_{camera_slug}" if camera_slug else device_slug
+        self.entity_id = f"camera.{object_id}"
 
         self._attr_unique_id = f"camera-{self.camera_id}"
         self._attr_name = self.device_name
