@@ -1,9 +1,8 @@
 # tests/conftest.py
 import asyncio
+from types import SimpleNamespace
 
 import pytest
-from aiohttp import ClientSession
-from homeassistant.config_entries import ConfigEntry
 
 
 @pytest.fixture(scope="session")
@@ -26,7 +25,7 @@ async def hass(tmp_path):
 
 @pytest.fixture
 def config_entry():
-    return ConfigEntry(
+    return SimpleNamespace(
         version=1,
         minor_version=1,
         domain="ucams",
@@ -42,7 +41,7 @@ def config_entry():
 def mock_ufanet_api():
     class MockUfanetApi:
         def __init__(self):
-            self.session = ClientSession()
+            self.session = SimpleNamespace(headers={})
             self.token_expiration = 0
 
         async def get_contract_info(self):
@@ -52,6 +51,8 @@ def mock_ufanet_api():
 
 
 @pytest.fixture
-def ucams_api(hass, config_entry, mock_ufanet_api):
+async def ucams_api(hass, config_entry, mock_ufanet_api):
     from custom_components.ucams.ucams import UcamsApi
-    return UcamsApi(hass, config_entry, mock_ufanet_api)
+    api = UcamsApi(hass, config_entry, mock_ufanet_api)
+    yield api
+    await api.session.close()
