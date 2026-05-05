@@ -3,10 +3,10 @@ import logging
 import os
 
 import voluptuous as vol
-from homeassistant.components.camera import ATTR_FILENAME
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
 
 from .ucams import UcamsApi
 from .ufanet import DomApi
@@ -42,9 +42,16 @@ OPTIONS_SCHEMA = {
 
 ARCHIVE_SCHEMA = vol.Schema(
     {
-        vol.Required(ATTR_ENTITY_ID): str,
+        vol.Required(ATTR_ENTITY_ID): cv.entity_id,
         vol.Required("start_time"): int,  # timestamp в UTC
         vol.Required("duration"): int,  # длительность в секундах
+    }
+)
+
+SNAPSHOT_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_ENTITY_ID): cv.entity_id,
+        vol.Required("filename"): cv.string,
     }
 )
 
@@ -79,12 +86,12 @@ async def async_setup(hass: HomeAssistant, config_entry: ConfigEntry):
     # Регистрация сервиса для создания снимков
 
     async def handle_snapshot_service(call):
-        entity_id = call.data.get(ATTR_ENTITY_ID)
+        entity_id = call.data[ATTR_ENTITY_ID]
         if isinstance(entity_id, list):
             entity_id = entity_id[0]
         camera = hass.data["camera"].get_entity(entity_id)
-        _LOGGER.debug(f"Entity ID: {entity_id}, Camera: {camera}")
-        filename = call.data[ATTR_FILENAME]
+        _LOGGER.debug("Entity ID: %s, Camera: %s", entity_id, camera)
+        filename = call.data["filename"]
         default_image = base64.b64decode(NO_SNAPSHOT_IMG)
         image = None
         try:
@@ -133,6 +140,7 @@ async def async_setup(hass: HomeAssistant, config_entry: ConfigEntry):
     hass.services.async_register(
         DOMAIN, "get_archive", handle_archive_service, schema=ARCHIVE_SCHEMA
     )
-
-    hass.services.async_register(DOMAIN, "snapshot", handle_snapshot_service)
+    hass.services.async_register(
+        DOMAIN, "snapshot", handle_snapshot_service, schema=SNAPSHOT_SCHEMA
+    )
     return True

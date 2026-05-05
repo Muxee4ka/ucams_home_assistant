@@ -3,11 +3,7 @@ import datetime
 import logging
 import re
 
-from homeassistant.components.camera import (
-    Camera,
-    CameraEntityFeature,
-    _async_get_stream_image,
-)
+from homeassistant.components.camera import Camera, CameraEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -76,10 +72,11 @@ class Ucams(Camera):
         _LOGGER.debug("Camera %s stream source is %s", self.camera_id, url)
         return url
 
-    async def async_camera_image(
-        self, width: int | None = None, height: int | None = None
-    ) -> bytes | None:
-        return await _async_get_stream_image(self, wait_for_next_keyframe=True)
+    # async_camera_image is intentionally not overridden: with
+    # CameraEntityFeature.STREAM advertised, the base Camera class fetches a
+    # keyframe from stream_source via the public path. The previous override
+    # called the private _async_get_stream_image, which can break on HA
+    # upgrades, and was equivalent to the default anyway.
 
     async def async_update(self):
         """Update camera entity."""
