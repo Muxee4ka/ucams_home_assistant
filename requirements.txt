@@ -1,8 +1,0 @@
-pytest
-pytest-asyncio
-aioresponses
-homeassistant
-aiohttp
-numpy
-transliterate
-josepy<2.0.0
