@@ -1,0 +1,23 @@
+{
+    "config": {
+        "abort": {
+            "already_configured": "Интеграция уже настроена"
+        },
+        "error": {
+            "cannot_connect": "Не удалось подключиться",
+            "invalid_auth": "Неверные учётные данные",
+            "unknown": "Неизвестная ошибка"
+        },
+        "step": {
+            "user": {
+                "data": {
+                    "link": "Ссылка Ucams",
+                    "dom_link": "Ссылка Ufanet dom",
+                    "password": "Пароль",
+                    "username": "Логин (номер договора)",
+                    "camera_image_refresh_interval": "Интервал обновления превью (сек)"
+                }
+            }
+        }
+    }
+}

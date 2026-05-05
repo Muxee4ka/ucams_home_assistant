@@ -1,23 +1,23 @@
 {
     "config": {
         "abort": {
-            "already_configured": "already configured"
+            "already_configured": "Already configured"
         },
         "error": {
-            "cannot_connect": "cannot connect",
-            "invalid_auth": "invalid_auth",
-            "unknown": "unknown"
+            "cannot_connect": "Cannot connect",
+            "invalid_auth": "Invalid authentication",
+            "unknown": "Unknown error"
         },
         "step": {
             "user": {
                 "data": {
                     "link": "Ucams link",
                     "dom_link": "Ufanet dom link",
-                    "password": "password",
-                    "username": "username",
-                    "camera_image_refresh_interval": "Camera refresh interval"
+                    "password": "Password",
+                    "username": "Username",
+                    "camera_image_refresh_interval": "Camera refresh interval (seconds)"
                 }
             }
         }
-   }
+    }
 }
