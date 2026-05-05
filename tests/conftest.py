@@ -13,9 +13,11 @@ def event_loop():
     yield loop
     loop.close()
 
+
 @pytest.fixture
 async def hass(tmp_path):
     from homeassistant.core import HomeAssistant
+
     """Создаёт и инициализирует объект Home Assistant."""
     hass = HomeAssistant(config_dir=str(tmp_path))
     await hass.async_start()  # Запускаем HomeAssistant
@@ -53,6 +55,7 @@ def mock_ufanet_api():
 @pytest.fixture
 async def ucams_api(hass, config_entry, mock_ufanet_api):
     from custom_components.ucams.ucams import UcamsApi
+
     api = UcamsApi(hass, config_entry, mock_ufanet_api)
     yield api
     await api.session.close()

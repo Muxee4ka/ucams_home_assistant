@@ -22,13 +22,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         camera_id = skud_info.get("cctv_number")
         _LOGGER.debug(f"SKUD: {skud_info}")
         _LOGGER.debug(f"Camera ID: {camera_id}")
-        camera_info = (
-            await cameras_api.get_camera_info(camera_id) if camera_id else None
-        )
+        camera_info = await cameras_api.get_camera_info(camera_id) if camera_id else None
         entities.append(
-            DomUfanetSwitchEntity(
-                hass, config_entry, cameras_api, dom_api, skud_info, camera_info
-            )
+            DomUfanetSwitchEntity(hass, config_entry, cameras_api, dom_api, skud_info, camera_info)
         )
     async_add_entities(entities)
 

@@ -6,7 +6,8 @@ import subprocess
 
 from homeassistant.components.camera import (
     Camera,
-    CameraEntityFeature, _async_get_stream_image,
+    CameraEntityFeature,
+    _async_get_stream_image,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -20,24 +21,22 @@ from .utils import TOKEN_REFRESH_BUFFER, DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 
-
 async def async_setup_entry(hass, config_entry, async_add_entities):
     cameras_api = hass.data[config_entry.entry_id]["cameras_api"]
     cameras_info = await cameras_api.get_cameras_info()
     entities = [
-        Ucams(hass, config_entry, cameras_api, camera_info)
-        for camera_info in cameras_info.values()
+        Ucams(hass, config_entry, cameras_api, camera_info) for camera_info in cameras_info.values()
     ]
     async_add_entities(entities)
 
 
 class Ucams(Camera):
     def __init__(
-            self,
-            hass: HomeAssistant,
-            config_entry: ConfigEntry,
-            cameras_api: UcamsApi,
-            camera_info: dict
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        cameras_api: UcamsApi,
+        camera_info: dict,
     ) -> None:
         super().__init__()
 
@@ -62,9 +61,7 @@ class Ucams(Camera):
         self._entity_picture = None
 
     async def _stream_refresh(self, now: datetime.datetime) -> None:
-        _LOGGER.debug(
-            "Checking if stream url should be updated for camera %s", self.camera_id
-        )
+        _LOGGER.debug("Checking if stream url should be updated for camera %s", self.camera_id)
         url = await self.stream_source()
         if self.stream and self.stream.source != url:
             _LOGGER.debug("Updating camera %s stream source to %s", self.camera_id, url)
@@ -80,17 +77,17 @@ class Ucams(Camera):
         return url
 
     async def async_camera_image(
-            self, width: int | None = None, height: int | None = None
+        self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
         return await _async_get_stream_image(self, wait_for_next_keyframe=True)
 
     async def async_update(self):
-        """ Update camera entity. """
+        """Update camera entity."""
         self._entity_picture = self.cameras_api.get_camera_image(self.camera_id)
 
     @property
     def entity_picture(self) -> str | None:
-        """ Return the camera image URL. """
+        """Return the camera image URL."""
         return self._entity_picture
 
     @property
@@ -105,7 +102,9 @@ class Ucams(Camera):
         """
         Get snapshot from RTSP stream.
         """
-        rtsp_url = await self.cameras_api.get_camera_stream_url(self.camera_id)  # Получение RTSP URL потока
+        rtsp_url = await self.cameras_api.get_camera_stream_url(
+            self.camera_id
+        )  # Получение RTSP URL потока
         if not rtsp_url:
             _LOGGER.error("RTSP URL не найден для камеры %s", self.camera_id)
             return None
@@ -130,9 +129,7 @@ class Ucams(Camera):
 
             if ffmpeg_cmd.returncode != 0:
                 _LOGGER.error(
-                    "Ошибка FFmpeg для камеры %s: %s",
-                    self.camera_id,
-                    error_stream.decode()
+                    "Ошибка FFmpeg для камеры %s: %s", self.camera_id, error_stream.decode()
                 )
                 return None
 
@@ -153,9 +150,10 @@ class Ucams(Camera):
             ffmpeg_cmd.wait()
 
     async def get_camera_archive(self, start_time, duration):
-        archive_url = await self.cameras_api.get_camera_archive(self.camera_id, start_time, duration)
+        archive_url = await self.cameras_api.get_camera_archive(
+            self.camera_id, start_time, duration
+        )
         if not archive_url:
             _LOGGER.error("ARCHIVE URL не получен для камеры %s", self.camera_id)
             return None
         return archive_url
-

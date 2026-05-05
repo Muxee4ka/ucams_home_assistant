@@ -40,7 +40,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         archive_sensor = ArchiveLinkSensor(config_entry.entry_id, camera_id, device_name)
         sensors.append(archive_sensor)
 
-        hass.data[config_entry.entry_id].setdefault("archive_link_sensors", {})[camera_id] = archive_sensor
+        hass.data[config_entry.entry_id].setdefault("archive_link_sensors", {})[camera_id] = (
+            archive_sensor
+        )
 
     async_add_entities(sensors)
 
@@ -66,8 +68,8 @@ class ContractDetailSensor(SensorEntity):
                     contract_address.get("city"),
                     contract_address.get("street"),
                     contract_address.get("house"),
-                    contract_address.get("flat")
-                ]
+                    contract_address.get("flat"),
+                ],
             )
         )
         return {
@@ -79,7 +81,9 @@ class ContractDetailSensor(SensorEntity):
             "Выходное сальдо": balance["output_saldo"],
             "Рекомендуемая оплата": balance["recommended"],
             "Лимит": balance["limit"],
-            "Дата окончания": datetime.fromtimestamp(balance["expiry_date"] or 0).strftime("%d.%m.%Y %H:%M:%S"),
+            "Дата окончания": datetime.fromtimestamp(balance["expiry_date"] or 0).strftime(
+                "%d.%m.%Y %H:%M:%S"
+            ),
         }
 
     @property
@@ -106,7 +110,9 @@ class ServiceDetailSensor(SensorEntity):
         return {
             "Название": self.service["service_title_name"],
             "Статус": self.service["service_status"],
-            "Дата платежа": datetime.fromtimestamp(self.service["period_end"] or 0).strftime("%d.%m.%Y %H:%M:%S"),
+            "Дата платежа": datetime.fromtimestamp(self.service["period_end"] or 0).strftime(
+                "%d.%m.%Y %H:%M:%S"
+            ),
             "Стоимость": self.service["cost"],
             "Тариф": tariff.get("title", ""),
             "Скорость": tariff.get("speed", ""),

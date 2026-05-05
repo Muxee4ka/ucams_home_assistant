@@ -16,7 +16,8 @@ from custom_components.ucams.utils import (
     VIDEO,
     WS_VIDEO,
     SCREEN,
-    decode_token, )
+    decode_token,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,7 +35,9 @@ class UcamsApi:
         self._ufanet_api = ufanet_api
         self.config_entry_name = config_entry.data[CONF_NAME]
         self.cameras = {}
-        self.camera_image_refresh_interval = config_entry.options[CONF_CAMERA_IMAGE_REFRESH_INTERVAL]
+        self.camera_image_refresh_interval = config_entry.options[
+            CONF_CAMERA_IMAGE_REFRESH_INTERVAL
+        ]
         self.cams_server = None
         self.token = None
         self.token_expiration = 0
@@ -43,7 +46,6 @@ class UcamsApi:
     async def _authenticate(self):
         cams_servers = set()
         if not self.cams_server:
-
             contracts = await self._ufanet_api.get_contract_info()
             _LOGGER.debug(pformat(contracts))
             for contract in contracts:
@@ -56,8 +58,8 @@ class UcamsApi:
         self.cams_server = next(iter(cams_servers), self.cams_server)
         url = urljoin(self.cams_server, "api/v0/auth/?ttl=20800")
         self.session.headers["Authorization"] = self._ufanet_api.session.headers.get(
-                "Authorization"
-            )
+            "Authorization"
+        )
         async with self.session.post(url) as resp:
             resp.raise_for_status()
             data = await resp.json()
@@ -70,9 +72,9 @@ class UcamsApi:
         now = int(time())
         _LOGGER.debug(f"Token expiration: {self.token_expiration}. Now: {now}")
         if (
-                not self.token
-                or now >= self.token_expiration - TOKEN_REFRESH_BUFFER
-                or self._ufanet_api.token_expiration < now
+            not self.token
+            or now >= self.token_expiration - TOKEN_REFRESH_BUFFER
+            or self._ufanet_api.token_expiration < now
         ):
             await self._authenticate()
         return self.session
@@ -135,7 +137,8 @@ class UcamsApi:
                 f"wss://{domain}", f"{cam_id}/mse_ld?tracks=a1v1&realtime=true&token={token_l}"
             )
             url_screen = urljoin(
-                f"https://{screenshot_domain}", f"api/v0/screenshots/{cam_id}~600.jpg?token={token_l}"
+                f"https://{screenshot_domain}",
+                f"api/v0/screenshots/{cam_id}~600.jpg?token={token_l}",
             )
 
             self.cameras[cam_id] = {
@@ -176,7 +179,9 @@ class UcamsApi:
         # Проверяем срок действия `token_l`
         token_exp = self._decode_token_exp(camera_info.get("token_l"))
         if token_exp and (token_exp - now) < TOKEN_REFRESH_BUFFER:
-            _LOGGER.warning(f"Camera token {camera_id} is about to expire ({token_exp - now} sec), refreshing cameras list.")
+            _LOGGER.warning(
+                f"Camera token {camera_id} is about to expire ({token_exp - now} sec), refreshing cameras list."
+            )
             await self.get_cameras_info()  # Обновляем информацию о камерах
             camera_info = await self.get_camera_info(camera_id)  # Повторно загружаем камеру
 
@@ -230,23 +235,25 @@ class UcamsApi:
         _LOGGER.debug(camera_info)
         domain = camera_info.get("domain")
         params = {
-            'lang': 'ru',
+            "lang": "ru",
         }
 
         json_data = {
-            'fields': [
-                'token_d',
+            "fields": [
+                "token_d",
             ],
-            'token_d_ttl': 3600,
-            'token_d_duration': delta_time,
-            'token_d_start': start_time,
-            'numbers': [
+            "token_d_ttl": 3600,
+            "token_d_duration": delta_time,
+            "token_d_start": start_time,
+            "numbers": [
                 camera_id,
             ],
         }
         _LOGGER.debug(json_data)
 
-        async with session.post(f'{self.cams_server}/api/v0/cameras/this/', params=params, json=json_data) as response:
+        async with session.post(
+            f"{self.cams_server}/api/v0/cameras/this/", params=params, json=json_data
+        ) as response:
             status_code = response.status
             if status_code == 401:
                 _LOGGER.error("Authentication failed. Trying to re-authenticate")
@@ -256,16 +263,16 @@ class UcamsApi:
             response.raise_for_status()
             response_data = await response.json()
             _LOGGER.debug(f"Archive response: {response_data}")
-            result = response_data.get('results', [])
+            result = response_data.get("results", [])
             if not result:
                 return None
             for item in result:
-                if item['number'] == camera_id:
+                if item["number"] == camera_id:
                     params = {
-                        'token': item['token_d'],
+                        "token": item["token_d"],
                     }
 
-                    file_extension = '.mp4' if delta_time <= 3600 else '.ts'
-                    archive_url = f'https://{domain}/{item.get("number")}/archive-{start_time}-{delta_time}{file_extension}?token={item["token_d"]}'
+                    file_extension = ".mp4" if delta_time <= 3600 else ".ts"
+                    archive_url = f"https://{domain}/{item.get('number')}/archive-{start_time}-{delta_time}{file_extension}?token={item['token_d']}"
                     _LOGGER.debug(archive_url)
                     return archive_url

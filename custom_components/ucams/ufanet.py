@@ -10,7 +10,8 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from custom_components.ucams.utils import (
     CONF_DOM_URL,
     CONF_USERNAME,
-    CONF_PASSWORD, TOKEN_REFRESH_BUFFER,
+    CONF_PASSWORD,
+    TOKEN_REFRESH_BUFFER,
 )
 
 _LOGGER = logging.getLogger(__name__)
