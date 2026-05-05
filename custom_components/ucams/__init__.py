@@ -51,24 +51,21 @@ ARCHIVE_SCHEMA = vol.Schema(
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
-    try:
-        _LOGGER.info(
-            ["async_setup_entry", config_entry.entry_id, config_entry.data, config_entry.options]
-        )
-        ufanet_api = DomApi(hass, config_entry)
-        cameras_api = UcamsApi(hass, config_entry, ufanet_api)
-        cameras_info = await cameras_api.get_cameras_info()
-        hass.data[config_entry.entry_id] = {
-            "cameras_api": cameras_api,
-            "dom_api": ufanet_api,
-            "cameras_info": cameras_info,
-        }
-        await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
-        return True
-    except Exception as e:
-        _LOGGER.error(f"❌ Ошибка загрузки UCAMS: {e}")
-        return False
+async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    _LOGGER.debug("Setting up entry %s", config_entry.entry_id)
+    ufanet_api = DomApi(hass, config_entry)
+    cameras_api = UcamsApi(hass, config_entry, ufanet_api)
+    # Both APIs raise ConfigEntryAuthFailed / ConfigEntryNotReady themselves;
+    # let those propagate so HA shows a real error to the user instead of a
+    # silent setup failure.
+    cameras_info = await cameras_api.get_cameras_info()
+    hass.data[config_entry.entry_id] = {
+        "cameras_api": cameras_api,
+        "dom_api": ufanet_api,
+        "cameras_info": cameras_info,
+    }
+    await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
+    return True
 
 
 async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
