@@ -8,7 +8,9 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 
-from . import UcamsApi, DomApi, DOMAIN
+from .ucams import UcamsApi
+from .ufanet import DomApi
+from .utils import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_time_interval
 
-from . import UcamsApi
+from .ucams import UcamsApi
 from .utils import DOMAIN, TOKEN_REFRESH_BUFFER
 
 FFMPEG_SNAPSHOT_TIMEOUT = 15

@@ -5,19 +5,17 @@ import os
 import voluptuous as vol
 from homeassistant.components.camera import ATTR_FILENAME
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform, ATTR_ENTITY_ID
+from homeassistant.const import ATTR_ENTITY_ID, Platform
 from homeassistant.core import HomeAssistant
 
-from custom_components.ucams.sensor import ArchiveLinkSensor
-from custom_components.ucams.ucams import UcamsApi
-from custom_components.ucams.ufanet import DomApi
-from custom_components.ucams.utils import (
-    CONF_URL,
+from .ucams import UcamsApi
+from .ufanet import DomApi
+from .utils import (
+    CONF_CAMERA_IMAGE_REFRESH_INTERVAL,
     CONF_DOM_URL,
     CONF_NAME,
-    CONF_USERNAME,
     CONF_PASSWORD,
-    CONF_CAMERA_IMAGE_REFRESH_INTERVAL,
+    CONF_USERNAME,
     DOMAIN,
 )
 

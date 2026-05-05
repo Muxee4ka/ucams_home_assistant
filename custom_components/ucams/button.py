@@ -1,10 +1,11 @@
-import time
 import logging
+import time
+
 from homeassistant.components.button import ButtonEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 
-from custom_components.ucams.utils import DOMAIN
+from .utils import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 

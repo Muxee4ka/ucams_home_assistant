@@ -9,13 +9,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from transliterate import translit
 
-from custom_components.ucams.utils import (
-    CONF_NAME,
+from .ufanet import DomApi
+from .utils import (
     CONF_CAMERA_IMAGE_REFRESH_INTERVAL,
+    CONF_NAME,
+    SCREEN,
     TOKEN_REFRESH_BUFFER,
     VIDEO,
     WS_VIDEO,
-    SCREEN,
     decode_token,
 )
 
@@ -30,7 +31,7 @@ HEADERS = {
 
 
 class UcamsApi:
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, ufanet_api: "DomApi"):
+    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, ufanet_api: DomApi):
         self.hass = hass
         self._ufanet_api = ufanet_api
         self.config_entry_name = config_entry.data[CONF_NAME]

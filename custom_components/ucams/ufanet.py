@@ -7,7 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
-from custom_components.ucams.utils import (
+from .utils import (
     CONF_DOM_URL,
     CONF_PASSWORD,
     CONF_USERNAME,

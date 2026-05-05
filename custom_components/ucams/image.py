@@ -7,8 +7,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 
-from . import CONF_CAMERA_IMAGE_REFRESH_INTERVAL, UcamsApi
-from .utils import DOMAIN
+from .ucams import UcamsApi
+from .utils import CONF_CAMERA_IMAGE_REFRESH_INTERVAL, DOMAIN
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):

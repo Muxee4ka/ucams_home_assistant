@@ -146,7 +146,7 @@ class ArchiveLinkSensor(SensorEntity):
     def extra_state_attributes(self):
         return self._attrs
 
-    def update_link(self, link: str, comment: str = None):
+    def update_link(self, link: str, comment: str | None = None):
         self._state = "available"
         self._attrs["archive_url"] = link
         self._attrs["updated"] = datetime.now().isoformat()
