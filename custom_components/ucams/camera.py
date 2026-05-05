@@ -1,8 +1,7 @@
+import asyncio
 import datetime
 import logging
 import re
-import shlex
-import subprocess
 
 from homeassistant.components.camera import (
     Camera,
@@ -13,10 +12,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.util.dt import now
 
 from . import UcamsApi
-from .utils import TOKEN_REFRESH_BUFFER, DOMAIN
+from .utils import DOMAIN, TOKEN_REFRESH_BUFFER
+
+FFMPEG_SNAPSHOT_TIMEOUT = 15
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -99,55 +99,59 @@ class Ucams(Camera):
         }
 
     async def handle_snapshot_from_rtsp(self) -> bytes | None:
-        """
-        Get snapshot from RTSP stream.
-        """
-        rtsp_url = await self.cameras_api.get_camera_stream_url(
-            self.camera_id
-        )  # Получение RTSP URL потока
+        """Grab a single frame from the camera's RTSP stream via ffmpeg."""
+        rtsp_url = await self.cameras_api.get_camera_stream_url(self.camera_id)
         if not rtsp_url:
             _LOGGER.error("RTSP URL не найден для камеры %s", self.camera_id)
             return None
 
-        command = (
-            f"ffmpeg -i {shlex.quote(rtsp_url)} -vf 'select=eq(n\\,0)' "
-            f"-vframes 1 -q:v 2 -f image2 -"
-        )
-
-        _LOGGER.debug("Выполняется команда FFmpeg для RTSP: %s", command)
-
-        # Запуск FFmpeg процесса
-        ffmpeg_cmd = subprocess.Popen(
-            shlex.split(command),
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        # Argument list — never a shell string — so the URL (which contains
+        # tokens and query params) is passed as a single argv entry safely.
+        args = [
+            "ffmpeg",
+            "-i",
+            rtsp_url,
+            "-vf",
+            "select=eq(n\\,0)",
+            "-vframes",
+            "1",
+            "-q:v",
+            "2",
+            "-f",
+            "image2",
+            "-",
+        ]
 
         try:
-            output_stream, error_stream = ffmpeg_cmd.communicate(timeout=15)  # Тайм-аут 15 секунд
+            process = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except OSError as err:
+            _LOGGER.error("Не удалось запустить ffmpeg для камеры %s: %s", self.camera_id, err)
+            return None
 
-            if ffmpeg_cmd.returncode != 0:
-                _LOGGER.error(
-                    "Ошибка FFmpeg для камеры %s: %s", self.camera_id, error_stream.decode()
-                )
-                return None
-
-            _LOGGER.info("Снимок успешно получен для камеры %s", self.camera_id)
-            return output_stream
-
-        except subprocess.TimeoutExpired:
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=FFMPEG_SNAPSHOT_TIMEOUT
+            )
+        except TimeoutError:
             _LOGGER.error("FFmpeg для камеры %s превысил тайм-аут", self.camera_id)
-            ffmpeg_cmd.terminate()
+            process.kill()
+            await process.wait()
             return None
 
-        except Exception as e:
-            _LOGGER.error("Ошибка при выполнении FFmpeg для камеры %s: %s", self.camera_id, e)
+        if process.returncode != 0:
+            _LOGGER.error(
+                "Ошибка FFmpeg для камеры %s: %s",
+                self.camera_id,
+                stderr.decode(errors="replace"),
+            )
             return None
 
-        finally:
-            ffmpeg_cmd.terminate()
-            ffmpeg_cmd.wait()
+        _LOGGER.info("Снимок успешно получен для камеры %s", self.camera_id)
+        return stdout
 
     async def get_camera_archive(self, start_time, duration):
         archive_url = await self.cameras_api.get_camera_archive(
