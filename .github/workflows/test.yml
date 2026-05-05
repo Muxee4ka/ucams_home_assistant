@@ -1,46 +1,40 @@
-# .github/workflows/test.yml
-name: Run Tests
+name: Tests
 
 on:
   push:
-    branches:
-      - master  # Укажите ветки, для которых запускаются тесты
-      - develop
+    branches: [master, develop]
   pull_request:
-    branches:
-      - master
-      - develop
+    branches: [master, develop]
 
 jobs:
-  test:
-    runs-on: ubuntu-latest  # Операционная система для выполнения тестов
-
+  lint:
+    runs-on: ubuntu-latest
     steps:
-      # 1. Клонирование репозитория
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      # 2. Установка Python
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'  # Укажите версию Python
-      - name: Cache pip dependencies
-        uses: actions/cache@v3
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
+      - name: Ruff lint
+        run: ruff check .
+      - name: Ruff format check
+        run: ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      # 3. Установка зависимостей
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio aioresponses
-
-      # 4. Запуск тестов
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e ".[dev]"
       - name: Run tests
-        run: |
-          pytest tests/ --maxfail=5 --disable-warnings
+        run: pytest --maxfail=5 --disable-warnings
