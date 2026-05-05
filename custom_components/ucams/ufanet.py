@@ -1,17 +1,18 @@
-import asyncio
 import logging
+from time import time
 from urllib.parse import urljoin
 
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from custom_components.ucams.utils import (
     CONF_DOM_URL,
-    CONF_USERNAME,
     CONF_PASSWORD,
+    CONF_USERNAME,
     TOKEN_REFRESH_BUFFER,
+    decode_token,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,19 +38,28 @@ class DomApi:
     async def _authenticate(self):
         url = urljoin(self.base_url, "api/v1/auth/auth_by_contract/")
         payload = {"contract": self.username, "password": self.password}
-        async with self.session.post(url, json=payload, compress=False) as resp:
-            if resp.status != 200:
-                response_text = await resp.text()
-                _LOGGER.error("Authentication failed: %s", response_text)
-                raise ConfigEntryNotReady(f"Authentication failed: {response_text}")
-            data = await resp.json()
-            token = data["token"]
-            access = token["access"]
-            self.token_expiration = token.get("exp", 0)
-            self.session.headers.update({"Authorization": f"JWT {access}"})
+        try:
+            async with self.session.post(url, json=payload, compress=False) as resp:
+                if resp.status in (401, 403):
+                    raise ConfigEntryAuthFailed(
+                        f"Authentication rejected by Ufanet ({resp.status})"
+                    )
+                resp.raise_for_status()
+                data = await resp.json()
+        except aiohttp.ClientError as err:
+            raise ConfigEntryNotReady(f"Authentication request failed: {err}") from err
+
+        access = data["token"]["access"]
+        self.token = access
+        # exp is the JWT expiration (unix timestamp); decode it instead of relying on
+        # the response envelope, which doesn't always carry it.
+        self.token_expiration = int(decode_token(access).get("exp", 0))
+        self.session.headers["Authorization"] = f"JWT {access}"
 
     async def get_authenticated_session(self):
-        now = asyncio.get_running_loop().time()
+        # token_expiration is a unix timestamp from the JWT, so compare against
+        # wall-clock time, not loop.time() (which is monotonic from process start).
+        now = int(time())
         if not self.token or now >= self.token_expiration - TOKEN_REFRESH_BUFFER:
             await self._authenticate()
         return self.session

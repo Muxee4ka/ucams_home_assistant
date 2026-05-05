@@ -1,8 +1,6 @@
 import base64
+import binascii
 import json
-import functools
-import asyncio
-from transliterate import translit
 
 import jwt
 
@@ -15,20 +13,30 @@ CONF_CAMERA_IMAGE_REFRESH_INTERVAL = "camera_image_refresh_interval"
 DOMAIN = "ucams"
 TOKEN_REFRESH_BUFFER = 300
 TIMEOUT = 30
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+)
 VIDEO = "video"
 WS_VIDEO = "ws_video"
 SCREEN = "screen"
 
 
-def decode_token(token):
+def decode_token(token: str) -> dict:
+    """Decode a JWT payload without verifying the signature.
+
+    Falls back to manually base64-decoding the first segment when PyJWT can't
+    parse the token (some Ufanet endpoints hand back non-standard tokens).
+    """
     try:
         return jwt.decode(token, options={"verify_signature": False})
-    except:
-        return json.loads(base64.b64decode(token.split(".")[0]).decode())
+    except jwt.PyJWTError:
+        pass
 
-
-async def async_transliterate(text) -> str:
-    """Асинхронный вариант translit()"""
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, functools.partial(translit, text, "ru", reversed=True))
+    try:
+        payload = token.split(".")[0]
+        # base64 decode tolerant of missing padding
+        payload += "=" * (-len(payload) % 4)
+        return json.loads(base64.urlsafe_b64decode(payload).decode())
+    except (ValueError, binascii.Error, UnicodeDecodeError, IndexError):
+        return {}
