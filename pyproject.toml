@@ -24,6 +24,7 @@ dev = [
     "aiohttp",
     "pytest",
     "pytest-asyncio",
+    "pytest-homeassistant-custom-component",
     "aioresponses",
     "ruff",
     "mypy",

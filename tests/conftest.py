@@ -1,28 +1,10 @@
-# tests/conftest.py
-import asyncio
+"""Common fixtures for ucams integration tests."""
+
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Создаёт цикл событий для тестов."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    yield loop
-    loop.close()
-
-
-@pytest.fixture
-async def hass(tmp_path):
-    from homeassistant.core import HomeAssistant
-
-    """Создаёт и инициализирует объект Home Assistant."""
-    hass = HomeAssistant(config_dir=str(tmp_path))
-    await hass.async_start()  # Запускаем HomeAssistant
-    yield hass
-    await hass.async_stop()  # Останавливаем HomeAssistant
+from homeassistant.core import HomeAssistant
 
 
 @pytest.fixture
@@ -34,7 +16,12 @@ def config_entry():
         title="Ucams",
         data={"name": "Test Config"},
         source="user",
-        options={"camera_image_refresh_interval": 10},
+        options={
+            "camera_image_refresh_interval": 10,
+            "username": "12345",
+            "password": "secret",
+            "dom_link": "https://dom.example.com",
+        },
         entry_id="1",
     )
 
@@ -53,9 +40,24 @@ def mock_ufanet_api():
 
 
 @pytest.fixture
-async def ucams_api(hass, config_entry, mock_ufanet_api):
+async def ucams_api(config_entry, mock_ufanet_api):
+    """A UcamsApi instance with a stubbed-out hass.
+
+    UcamsApi only stores hass on the instance — it never calls into it — so a
+    MagicMock is enough and lets these stay pure unit tests, no event loop or
+    HomeAssistant boot required.
+    """
     from custom_components.ucams.ucams import UcamsApi
 
-    api = UcamsApi(hass, config_entry, mock_ufanet_api)
+    api = UcamsApi(MagicMock(spec=HomeAssistant), config_entry, mock_ufanet_api)
     yield api
     await api.session.close()
+
+
+@pytest.fixture
+async def dom_api(config_entry):
+    from custom_components.ucams.ufanet import DomApi
+
+    api = DomApi(MagicMock(spec=HomeAssistant), config_entry)
+    yield api
+    await api.close()
