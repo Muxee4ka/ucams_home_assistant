@@ -38,6 +38,7 @@ class UcamsCameraImageEntity(ImageEntity):
         self.entity_id = f"image.{build_object_id(self.device_name, self.camera_id)}"
         self._attr_unique_id = f"image-{self.camera_id}"
         self._attr_name = self.device_name
+        self._attr_icon = "mdi:image-area"
         refresh_seconds = config_entry.options[CONF_CAMERA_IMAGE_REFRESH_INTERVAL]
         self._refresh_cancel_fn = async_track_time_interval(
             hass,

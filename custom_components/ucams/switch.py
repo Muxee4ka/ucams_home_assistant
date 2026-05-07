@@ -60,6 +60,7 @@ class DomUfanetSwitchEntity(SwitchEntity):
         self.entity_id = f"switch.{build_object_id(self.device_name, self.skud_id)}"
         self._attr_unique_id = f"switch-{self.skud_id}"
         self._attr_name = self.device_name
+        self._attr_icon = "mdi:door-open"
         self._attr_is_on = False
         self.time_out = skud_info["timeout"]
         self._auto_off_task: asyncio.Task | None = None

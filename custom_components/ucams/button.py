@@ -26,17 +26,15 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         camera_id = camera["id"]
         buttons.append(
             ArchiveButton(
-                hass, config_entry, cameras_api, camera_id, device_name, "Last 5 min", 300
+                hass, config_entry, cameras_api, camera_id, device_name, "за 5 минут", 300
             )
         )
         buttons.append(
-            ArchiveButton(
-                hass, config_entry, cameras_api, camera_id, device_name, "Last hour", 3600
-            )
+            ArchiveButton(hass, config_entry, cameras_api, camera_id, device_name, "за 1 час", 3600)
         )
         buttons.append(
             ArchiveButton(
-                hass, config_entry, cameras_api, camera_id, device_name, "Last 5 hours", 5 * 3600
+                hass, config_entry, cameras_api, camera_id, device_name, "за 5 часов", 5 * 3600
             )
         )
     async_add_entities(buttons)
@@ -72,6 +70,7 @@ class ArchiveButton(ButtonEntity):
 
         self._attr_unique_id = f"archive_button_{camera_id}_{duration}"
         self._attr_name = f"Архив {label}"
+        self._attr_icon = "mdi:video-vintage"
 
     @property
     def device_info(self) -> DeviceInfo:

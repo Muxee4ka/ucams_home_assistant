@@ -44,6 +44,7 @@ class Ucams(Camera):
 
         self._attr_unique_id = f"camera-{self.camera_id}"
         self._attr_name = self.device_name
+        self._attr_icon = "mdi:cctv"
         self._attr_supported_features = CameraEntityFeature.STREAM
         self._stream_refresh_cancel_fn = async_track_time_interval(
             self.hass,

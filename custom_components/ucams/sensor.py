@@ -123,6 +123,8 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 
 class ContractDetailSensor(SensorEntity):
+    _attr_icon = "mdi:cash-multiple"
+
     def __init__(self, hass, detail):
         self.hass = hass
         self.detail = detail
@@ -169,6 +171,8 @@ class ContractDetailSensor(SensorEntity):
 
 
 class ServiceDetailSensor(SensorEntity):
+    _attr_icon = "mdi:cog-outline"
+
     def __init__(self, hass, contract, service):
         self.hass = hass
         self.contract = contract
@@ -201,11 +205,14 @@ class ServiceDetailSensor(SensorEntity):
 
 class ArchiveLinkSensor(SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:cloud-download-outline"
 
     def __init__(self, config_entry_id: str, camera_id: str, device_name: str):
         self._config_entry_id = config_entry_id
         self._camera_id = camera_id
         self._device_name = device_name
+        # Name kept in English so the slug HA auto-derives for entity_id
+        # stays `sensor.archive_link_<slug>` — the README example relies on it.
         self._attr_name = f"Archive Link {device_name}"
         self._attr_unique_id = f"archive_link_sensor_{camera_id}"
         self._state = None
@@ -245,6 +252,7 @@ class LastCallSensor(CoordinatorEntity, SensorEntity):
     """Per-intercom sensor: state is the camera's most recent call timestamp."""
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:phone-incoming"
 
     def __init__(
         self,
