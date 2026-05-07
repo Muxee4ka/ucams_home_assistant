@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import voluptuous as vol
@@ -50,8 +51,12 @@ OPTIONS_SCHEMA = {
 ARCHIVE_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_ENTITY_ID): cv.entity_id,
-        vol.Required("start_time"): int,  # timestamp в UTC
-        vol.Required("duration"): int,  # длительность в секундах
+        # Accepts a unix timestamp (int) OR an ISO datetime / datetime selector
+        # value. `int` wins first in vol.Any so legacy automations that pass
+        # `(now().timestamp() | int) - 3600` keep working.
+        vol.Required("start_time"): vol.Any(int, cv.datetime),
+        # Accepts seconds (int) OR a duration-selector dict / timedelta.
+        vol.Required("duration"): vol.Any(int, cv.time_period),
     }
 )
 
@@ -137,6 +142,24 @@ def _find_camera_entity(hass: HomeAssistant, entity_id: str):
     return None
 
 
+def _normalize_archive_start(value) -> int:
+    """Coerce a service-call start_time to a unix timestamp (int seconds).
+
+    Accepts a plain int (already a timestamp), or a datetime — naive datetimes
+    are interpreted as local time, matching what HA's datetime selector sends.
+    """
+    if isinstance(value, datetime):
+        return int(value.timestamp())
+    return int(value)
+
+
+def _normalize_archive_duration(value) -> int:
+    """Coerce a service-call duration to seconds (int)."""
+    if isinstance(value, timedelta):
+        return int(value.total_seconds())
+    return int(value)
+
+
 def _local_url_for(hass: HomeAssistant, filename: str) -> str | None:
     """Return /local/<…> URL if filename lives under <config>/www/, else None."""
     www_dir = Path(hass.config.path("www")).resolve()
@@ -204,8 +227,8 @@ def _async_register_services(hass: HomeAssistant) -> None:
         camera = _find_camera_entity(hass, entity_id)
         if camera is None:
             raise HomeAssistantError(f"Camera entity {entity_id} not found")
-        start_time = call.data["start_time"]
-        duration = call.data["duration"]
+        start_time = _normalize_archive_start(call.data["start_time"])
+        duration = _normalize_archive_duration(call.data["duration"])
         data = hass.data[camera.config_entry_id]
 
         archive_url = await camera.get_camera_archive(start_time, duration)

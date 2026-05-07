@@ -52,12 +52,14 @@ trigger:
     minutes: "0"  # срабатывает каждый час, когда минуты равны 0
 condition: []
 action:
-  # 1. Запрашиваем архив за последний час
+  # 1. Запрашиваем архив за последний час.
+  # start_time принимает datetime или unix-timestamp (int);
+  # duration — timedelta (HH:MM:SS) или секунды (int).
   - service: ucams.get_archive
     data:
       entity_id: camera.ucams_kamera_1
-      start_time: "{{ (now().timestamp() | int) - 3600 }}"
-      duration: 3600
+      start_time: "{{ now() - timedelta(hours=1) }}"
+      duration: "01:00:00"
   # 2. Небольшая задержка для обновления состояния ArchiveLinkSensor
   - delay:
       seconds: 10

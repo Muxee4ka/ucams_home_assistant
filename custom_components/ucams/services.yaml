@@ -23,16 +23,11 @@ get_archive:
           integration: ucams
     start_time:
       required: true
-      example: 1714915200
+      example: "2026-05-07 14:30:00"
       selector:
-        number:
-          mode: box
-          min: 0
+        datetime:
     duration:
       required: true
-      example: 300
+      example: "00:05:00"
       selector:
-        number:
-          mode: box
-          min: 1
-          unit_of_measurement: s
+        duration:
