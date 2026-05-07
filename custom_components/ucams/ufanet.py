@@ -102,5 +102,18 @@ class DomApi:
             resp.raise_for_status()
             return await resp.json()
 
+    async def get_call_history(self, page_size: int = 20):
+        """Get recent intercom call history.
+
+        Each item carries uuid, house_id, address, porch, flat, called_at,
+        camera_number, skud_mac, timezone.
+        """
+        session = await self.get_authenticated_session()
+        url = urljoin(self.base_url, "api/v1/skuds/call-history/")
+        params = {"page": 1, "page_size": page_size}
+        async with session.get(url, params=params) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
     async def close(self):
         await self.session.close()
