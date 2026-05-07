@@ -7,7 +7,6 @@ from aiohttp import ClientSession
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from transliterate import translit
 
 from .ufanet import DomApi
 from .utils import (
@@ -18,6 +17,7 @@ from .utils import (
     VIDEO,
     WS_VIDEO,
     decode_token,
+    transliterate_ru,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ class UcamsApi:
 
     async def get_authenticated_session(self):
         now = int(time())
-        _LOGGER.debug(f"Token expiration: {self.token_expiration}. Now: {now}")
+        _LOGGER.debug("Token expiration: %s. Now: %s", self.token_expiration, now)
         if (
             not self.token
             or now >= self.token_expiration - TOKEN_REFRESH_BUFFER
@@ -111,13 +111,16 @@ class UcamsApi:
         url = urljoin(self.cams_server, "api/v0/cameras/my/")
 
         cameras_info = {"results": []}
+        retried = False
         while True:
             async with session.post(url, json=json_data) as resp:
-                status_code = resp.status
-                if status_code == 401:
+                if resp.status == 401:
+                    if retried:
+                        resp.raise_for_status()
                     _LOGGER.error("Authentication failed. Trying to re-authenticate")
                     await self._authenticate()
-                    return await self.get_cameras_info()
+                    retried = True
+                    continue
                 resp.raise_for_status()
                 response_data = await resp.json()
                 cameras_info["results"].extend(response_data.get("results", []))
@@ -150,6 +153,9 @@ class UcamsApi:
                 "url_ws_video": ws_video,
                 "url_screen": url_screen,
                 "token_l": token_l,
+                "latitude": cam.get("latitude"),
+                "longitude": cam.get("longitude"),
+                "address": cam.get("address"),
             }
 
         return self.cameras
@@ -157,7 +163,7 @@ class UcamsApi:
     def build_device_name(self, device_title) -> str:
         device_name = device_title.lower()
         device_name = f"{self.config_entry_name}.{device_name}"
-        device_name = translit(device_name, "ru", reversed=True)
+        device_name = transliterate_ru(device_name)
         return device_name.capitalize()
 
     async def get_camera_info(self, camera_id: str) -> dict | None:
@@ -172,7 +178,7 @@ class UcamsApi:
         camera_info = await self.get_camera_info(camera_id)
 
         if not camera_info:
-            _LOGGER.error(f"Camera {camera_id} not found.")
+            _LOGGER.error("Camera %s not found.", camera_id)
             return None
 
         now = int(time())
@@ -181,25 +187,26 @@ class UcamsApi:
         token_exp = self._decode_token_exp(camera_info.get("token_l"))
         if token_exp and (token_exp - now) < TOKEN_REFRESH_BUFFER:
             _LOGGER.warning(
-                f"Camera token {camera_id} is about to expire ({token_exp - now} sec), refreshing cameras list."
+                "Camera token %s is about to expire (%s sec), refreshing cameras list.",
+                camera_id,
+                token_exp - now,
             )
-            await self.get_cameras_info()  # Обновляем информацию о камерах
-            camera_info = await self.get_camera_info(camera_id)  # Повторно загружаем камеру
+            await self.get_cameras_info()
+            camera_info = await self.get_camera_info(camera_id)
 
         # Проверяем, обновился ли `token_l`
         token_exp = self._decode_token_exp(camera_info.get("token_l"))
         if not token_exp or (token_exp - now) < TOKEN_REFRESH_BUFFER:
-            _LOGGER.error(f"Failed to update token for camera {camera_id}.")
+            _LOGGER.error("Failed to update token for camera %s.", camera_id)
             return None
 
-        # Получаем URL нужного типа
         url_key = f"url_{url_type}"
         url = camera_info.get(url_key)
 
         if not url:
-            _LOGGER.error(f"URL ({url_type}) not found for camera {camera_id}.")
+            _LOGGER.error("URL (%s) not found for camera %s.", url_type, camera_id)
         else:
-            _LOGGER.debug(f"URL ({url_type}) for camera {camera_id}: {url}")
+            _LOGGER.debug("URL (%s) for camera %s: %s", url_type, camera_id, url)
 
         return url
 
@@ -209,7 +216,7 @@ class UcamsApi:
             decoded = decode_token(token)
             return int(decoded.get("exp", 0))
         except Exception as e:
-            _LOGGER.error(f"Token decoding error: {e}")
+            _LOGGER.error("Token decoding error: %s", e)
             return None
 
     async def get_camera_stream_ws_url(self, camera_id: str) -> str | None:
@@ -228,6 +235,9 @@ class UcamsApi:
                 resp.raise_for_status()
                 content = await resp.read()
                 return content
+
+    async def close(self) -> None:
+        await self.session.close()
 
     async def get_camera_archive(self, camera_id: str, start_time: int, delta_time: int):
         """Get archive"""
@@ -252,28 +262,25 @@ class UcamsApi:
         }
         _LOGGER.debug(json_data)
 
-        async with session.post(
-            f"{self.cams_server}/api/v0/cameras/this/", params=params, json=json_data
-        ) as response:
-            status_code = response.status
-            if status_code == 401:
-                _LOGGER.error("Authentication failed. Trying to re-authenticate")
-
-                await self._authenticate()
-                return await self.get_camera_archive(camera_id, start_time, delta_time)
-            response.raise_for_status()
-            response_data = await response.json()
-            _LOGGER.debug(f"Archive response: {response_data}")
-            result = response_data.get("results", [])
-            if not result:
-                return None
-            for item in result:
-                if item["number"] == camera_id:
-                    params = {
-                        "token": item["token_d"],
-                    }
-
-                    file_extension = ".mp4" if delta_time <= 3600 else ".ts"
-                    archive_url = f"https://{domain}/{item.get('number')}/archive-{start_time}-{delta_time}{file_extension}?token={item['token_d']}"
-                    _LOGGER.debug(archive_url)
-                    return archive_url
+        archive_url_endpoint = f"{self.cams_server}/api/v0/cameras/this/"
+        for attempt in range(2):
+            async with session.post(
+                archive_url_endpoint, params=params, json=json_data
+            ) as response:
+                if response.status == 401 and attempt == 0:
+                    _LOGGER.error("Authentication failed. Trying to re-authenticate")
+                    await self._authenticate()
+                    continue
+                response.raise_for_status()
+                response_data = await response.json()
+                break
+        _LOGGER.debug("Archive response: %s", response_data)
+        result = response_data.get("results", [])
+        if not result:
+            return None
+        for item in result:
+            if item["number"] == camera_id:
+                file_extension = ".mp4" if delta_time <= 3600 else ".ts"
+                archive_url = f"https://{domain}/{item.get('number')}/archive-{start_time}-{delta_time}{file_extension}?token={item['token_d']}"
+                _LOGGER.debug(archive_url)
+                return archive_url
