@@ -1,0 +1,12 @@
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: ha-ucams-dev
+    ports:
+      - "8123:8123"
+    volumes:
+      - ./ha_config:/config
+      - ./custom_components/ucams:/config/custom_components/ucams
+    environment:
+      - TZ=Europe/Moscow
+    restart: unless-stopped

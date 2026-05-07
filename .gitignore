@@ -28,3 +28,6 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local Home Assistant dev workspace (mounted by docker-compose)
+ha_config/
