@@ -19,16 +19,18 @@ CI (`.github/workflows/`) runs ruff + pytest on Python 3.12 and 3.13, plus `hass
 
 Single HACS integration under `custom_components/ucams/` that surfaces Ufanet's video surveillance + intercoms in Home Assistant.
 
-### Two-tier API client
+### API clients (hot path: dom only; cams_server lazy for archive)
 
-The integration talks to two separate Ufanet backends, and the second depends on the first:
+Two backends, but the integration only contacts one of them on the hot path:
 
-- **`ufanet.DomApi`** (`ufanet.py`) — the "dom.ufanet.ru" portal. Authenticates with contract+password, exposes contracts, skud (intercoms), call history. Uses `JWT <token>` auth header.
-- **`ucams.UcamsApi`** (`ucams.py`) — the per-region cams server. Its base URL (`cams_server`) is **discovered at runtime** from `DomApi.get_contract_info()` (`isp_org.cams_server.url`). Auth is bootstrapped by copying `DomApi`'s `Authorization` header and POSTing to `api/v0/auth/?ttl=…` to receive its own bearer token. Uses `Bearer <token>` thereafter.
+- **`ufanet.DomApi`** (`ufanet.py`) — `dom.ufanet.ru`. Authenticates with contract+password (`/api/v1/auth/auth_by_contract/`). Exposes contracts, skud (intercoms), call history, and the **flat camera list via `/api/v1/cctv`** (`get_cctv_list`). Uses `JWT <token>` auth header.
+- **`ucams.UcamsApi`** (`ucams.py`) — wraps `DomApi` for the camera read path; only authenticates separately against the regional `cams_server` when **archive** is requested. Its `cams_server` URL is **discovered lazily** from `DomApi.get_contract_info()` (`isp_org.cams_server.url`) on the first archive call.
 
-Both clients track expiry via the JWT `exp` claim (`utils.decode_token`, with a manual base64 fallback for non-standard tokens) and refresh when within `TOKEN_REFRESH_BUFFER` (300s) of expiry. `UcamsApi.get_authenticated_session` also re-auths if the upstream `DomApi` token has expired, since the cams token was minted from it.
+`utils.decode_token` decodes JWT payloads (with a manual base64 fallback for non-standard tokens) and `TOKEN_REFRESH_BUFFER` (300s) is the slack used everywhere expiry is checked.
 
-`UcamsApi.get_cameras_info` paginates `api/v0/cameras/my/` and pre-builds the per-camera RTSP / WebSocket / screenshot URLs (each carries a per-camera `token_l`). `get_camera_url` re-fetches the camera list when `token_l` is near expiry.
+`UcamsApi.get_cameras_info` calls `DomApi.get_cctv_list` (single round-trip, no pagination) and pre-builds per-camera RTSP / WebSocket / screenshot URLs from each item's `servers.{domain, screenshot_domain}` and `token_l` (live JWT, `t:"L"`). `get_camera_url` re-fetches when `token_l` is near expiry. `get_camera_image` goes through the dom session — no cams_server bootstrap needed for screenshots.
+
+`UcamsApi.get_camera_archive` is the only path that still hits cams_server: only `/api/v0/cameras/this/` issues `token_d` (archive download JWT, `t:"D"`, with embedded `ds`/`dd` start+duration). `_ensure_cams_session` lazily auths there using the dom JWT as bootstrap. `token_r` from `/api/v1/cctv` is **not** a substitute — empirically returns 403 against the archive endpoint.
 
 ### Entry lifecycle (`__init__.py`)
 
@@ -63,7 +65,7 @@ Services (`ucams.snapshot`, `ucams.get_archive`) are registered once globally an
 
 - **Entity ids are slugified through `utils.transliterate_ru` + `build_object_id`.** The `_RU_TRANSLIT` mapping in `utils.py` is **vendored verbatim from `transliterate>=1.10`** to preserve every entity_id that existed before the dependency was dropped — don't "improve" it.
 - **`parse_house_area`** strips `"г. <city>, "` prefix and `", п.<n>"` porch suffix from Ufanet addresses, yielding a `"Street, House"` HA area name. Areas are force-assigned post-setup in `_assign_areas_by_address` because `suggested_area` only fires on a device's first registration.
-- **`api/v0/cameras/my/` rejects unknown `fields`** with HTTP 400. Notably `"house"` is not valid — addresses are parsed locally instead. Add fields to that request only after confirming they're accepted.
+- **The legacy `cams_server/api/v0/cameras/my/` endpoint** (no longer used on the read path) strictly validates its `fields` array — `"house"` returned HTTP 400, which is why addresses are parsed locally. If you ever re-add that endpoint, every new field needs verifying in isolation before shipping.
 - **Hard-to-reverse / setup-time decisions live in `__init__.py`'s docstrings/comments**; trust those over the wider HA docs when they conflict.
 
 ### Tests (`tests/`)
