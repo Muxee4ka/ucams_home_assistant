@@ -104,9 +104,7 @@ def _assign_areas_by_address(
         )
         if device is None:
             continue
-        area = area_reg.async_get_area_by_name(area_name) or area_reg.async_get_or_create(
-            area_name
-        )
+        area = area_reg.async_get_area_by_name(area_name) or area_reg.async_get_or_create(area_name)
         if device.area_id != area.id:
             dev_reg.async_update_device(device.id, area_id=area.id)
 
@@ -125,11 +123,7 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
 
 def _ucams_entries(hass: HomeAssistant) -> list[dict]:
     """Return live ucams entry-data dicts in hass.data."""
-    return [
-        d
-        for d in hass.data.values()
-        if isinstance(d, dict) and "cameras_api" in d
-    ]
+    return [d for d in hass.data.values() if isinstance(d, dict) and "cameras_api" in d]
 
 
 def _find_camera_entity(hass: HomeAssistant, entity_id: str):

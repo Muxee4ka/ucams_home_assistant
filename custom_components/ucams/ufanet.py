@@ -102,6 +102,21 @@ class DomApi:
             resp.raise_for_status()
             return await resp.json()
 
+    async def get_cctv_list(self) -> list[dict]:
+        """Return the flat camera list from /api/v1/cctv.
+
+        Each item carries number, title, address, latitude, longitude, type,
+        inactivity_period, token_l (live), token_r (record), and
+        servers.{domain, screenshot_domain, vendor_name}. Replaces the heavier
+        cams_server /api/v0/cameras/my/ flow for the read path; cams_server is
+        still required for archive (only it issues token_d).
+        """
+        session = await self.get_authenticated_session()
+        url = urljoin(self.base_url, "api/v1/cctv")
+        async with session.get(url) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
     async def get_call_history(self, page_size: int = 20):
         """Get recent intercom call history.
 

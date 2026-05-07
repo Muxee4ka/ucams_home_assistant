@@ -27,6 +27,7 @@ _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 # Mirrors transliterate>=1.10's "ru" reverse pack. Kept verbatim so existing
 # entity_ids generated under that library are preserved across the swap.
+# fmt: off
 _RU_TRANSLIT = {
     "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e",
     "ж": "zh", "з": "z", "и": "i", "й": "j", "к": "k", "л": "l", "м": "m",
@@ -39,6 +40,7 @@ _RU_TRANSLIT = {
     "Ф": "F", "Х": "H", "Ц": "Ts", "Ч": "Ch", "Ш": "Sh", "Щ": "Sch",
     "Ъ": "'", "Ы": "Y", "Ь": "'", "Э": "E", "Ю": "Ju", "Я": "Ja",
 }
+# fmt: on
 
 
 def transliterate_ru(value: str) -> str:
