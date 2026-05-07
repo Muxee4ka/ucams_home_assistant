@@ -1,14 +1,13 @@
-import asyncio
-import re
-from datetime import datetime
+import datetime
 
 from homeassistant.components.image import ImageEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.event import async_track_time_interval
 
 from .ucams import UcamsApi
-from .utils import CONF_CAMERA_IMAGE_REFRESH_INTERVAL, DOMAIN
+from .utils import CONF_CAMERA_IMAGE_REFRESH_INTERVAL, DOMAIN, build_object_id
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -36,32 +35,31 @@ class UcamsCameraImageEntity(ImageEntity):
         self.cameras_api = cameras_api
         self.camera_id = camera_info["id"]
         self.device_name = self.cameras_api.build_device_name(camera_info["title"])
-        device_slug = re.sub(r"[^a-z0-9]+", "_", self.device_name.lower()).strip("_")
-        camera_slug = re.sub(r"[^a-z0-9]+", "_", str(self.camera_id).lower()).strip("_")
-        object_id = f"{device_slug}_{camera_slug}" if camera_slug else device_slug
-        self.entity_id = f"image.{object_id}"
-        self.camera_image_refresh_interval = config_entry.options[
-            CONF_CAMERA_IMAGE_REFRESH_INTERVAL
-        ]
+        self.entity_id = f"image.{build_object_id(self.device_name, self.camera_id)}"
         self._attr_unique_id = f"image-{self.camera_id}"
         self._attr_name = self.device_name
+        refresh_seconds = config_entry.options[CONF_CAMERA_IMAGE_REFRESH_INTERVAL]
+        self._refresh_cancel_fn = async_track_time_interval(
+            hass,
+            self._async_mark_stale,
+            datetime.timedelta(seconds=refresh_seconds),
+        )
 
     async def async_image(self) -> bytes | None:
         res = await self.cameras_api.get_camera_image(self.camera_id)
-        self.camera_image_task = asyncio.create_task(
-            self.set_image_last_updated(self.camera_image_refresh_interval)
-        )
+        if res is not None:
+            self._attr_image_last_updated = datetime.datetime.now()
         return res
 
-    async def set_image_last_updated(self, ttl: int) -> None:
-        await asyncio.sleep(ttl)
-        self._attr_image_last_updated = datetime.now()
-        await self.hass.services.async_call(
-            "homeassistant",
-            "update_entity",
-            {"entity_id": self.entity_id},
-            blocking=False,
-        )
+    async def _async_mark_stale(self, now: datetime.datetime) -> None:
+        # Bumping image_last_updated tells HA the cached image is stale; the
+        # frontend will then call async_image() and re-fetch.
+        self._attr_image_last_updated = now
+        self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._refresh_cancel_fn:
+            self._refresh_cancel_fn()
 
     @property
     def device_info(self) -> DeviceInfo:

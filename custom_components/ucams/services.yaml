@@ -1,0 +1,38 @@
+snapshot:
+  supports_response: optional
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          domain: camera
+          integration: ucams
+    filename:
+      example: "/config/www/snapshot.jpg"
+      selector:
+        text:
+
+get_archive:
+  supports_response: optional
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          domain: camera
+          integration: ucams
+    start_time:
+      required: true
+      example: 1714915200
+      selector:
+        number:
+          mode: box
+          min: 0
+    duration:
+      required: true
+      example: 300
+      selector:
+        number:
+          mode: box
+          min: 1
+          unit_of_measurement: s
