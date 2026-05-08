@@ -4,15 +4,7 @@ from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from aioresponses import aioresponses
 
-# JWT used as the cams_server bearer in the archive flow. The exp claim is
-# far enough in the future that TOKEN_REFRESH_BUFFER doesn't trip.
-CAMS_BEARER_TOKEN = (
-    "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9."
-    "eyJleHAiOjE4NTAwMDAwMDAsImlhdCI6MTczNzI5MjM4MiwidSI6IjEyMzQ1Njc4OSJ9."
-    "uNrXx9vJjpHXDff0tPTaAHkmx4u1OsBxOEp8X0mqu7g"
-)
 LIVE_TOKEN = (
     "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9."
     "eyJleHAiOjE4NTAwMDAwMDAsImlhdCI6MTczNzI5MjM4MiwidSI6IjEyMzQ1Njc4OSIs"
@@ -121,31 +113,45 @@ async def test_token_expiry_triggers_cctv_refresh(ucams_api, mock_ufanet_api):
 
 @pytest.mark.asyncio
 async def test_get_camera_archive_uses_cams_server(ucams_api, mock_ufanet_api):
-    """Archive still goes through cams_server (only place token_d is issued)."""
+    """Archive still goes through cams_server (only place token_d is issued).
+
+    Stubs `_ensure_cams_session` to skip building a real aiohttp.ClientSession
+    (that path leaves a `_run_safe_shutdown_loop` daemon thread on close,
+    which pytest-homeassistant-custom-component flags as lingering on 3.12).
+    """
     mock_ufanet_api.cctv_payload = [CCTV_FAKE_ITEM]
-    with aioresponses() as m:
-        m.post(
-            "https://cams.example.com/api/v0/auth/?ttl=20800",
-            payload={"token": CAMS_BEARER_TOKEN},
-            repeat=True,
-        )
-        m.post(
-            "https://cams.example.com/api/v0/cameras/this/?lang=ru",
-            payload={
-                "count": 1,
-                "results": [{"number": CCTV_FAKE_ITEM["number"], "token_d": "token_d"}],
-            },
-            repeat=True,
-        )
 
-        archive_url = await ucams_api.get_camera_archive(CCTV_FAKE_ITEM["number"], 0, 3600)
-        assert (
-            archive_url
-            == f"https://flussonic-msk-1.cams.example.com/{CCTV_FAKE_ITEM['number']}/archive-0-3600.mp4?token=token_d"
-        )
+    cams_response_data = {
+        "count": 1,
+        "results": [{"number": CCTV_FAKE_ITEM["number"], "token_d": "token_d"}],
+    }
 
-        archive_url = await ucams_api.get_camera_archive(CCTV_FAKE_ITEM["number"], 0, 3700)
-        assert (
-            archive_url
-            == f"https://flussonic-msk-1.cams.example.com/{CCTV_FAKE_ITEM['number']}/archive-0-3700.ts?token=token_d"
-        )
+    response = MagicMock()
+    response.status = 200
+    response.raise_for_status = MagicMock()
+    response.json = AsyncMock(return_value=cams_response_data)
+
+    @asynccontextmanager
+    async def fake_post(url, params=None, json=None):
+        yield response
+
+    fake_session = MagicMock()
+    fake_session.post = fake_post
+
+    async def ensure_cams_session():
+        ucams_api.cams_server = "https://cams.example.com"
+        return fake_session
+
+    ucams_api._ensure_cams_session = ensure_cams_session
+
+    archive_url = await ucams_api.get_camera_archive(CCTV_FAKE_ITEM["number"], 0, 3600)
+    assert (
+        archive_url
+        == f"https://flussonic-msk-1.cams.example.com/{CCTV_FAKE_ITEM['number']}/archive-0-3600.mp4?token=token_d"
+    )
+
+    archive_url = await ucams_api.get_camera_archive(CCTV_FAKE_ITEM["number"], 0, 3700)
+    assert (
+        archive_url
+        == f"https://flussonic-msk-1.cams.example.com/{CCTV_FAKE_ITEM['number']}/archive-0-3700.ts?token=token_d"
+    )
