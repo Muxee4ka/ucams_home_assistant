@@ -1,4 +1,3 @@
-import aiohttp
 import logging
 from time import time
 from urllib.parse import urljoin
