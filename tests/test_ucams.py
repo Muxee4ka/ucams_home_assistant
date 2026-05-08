@@ -1,6 +1,8 @@
 """Tests for the ucams module."""
 
-import aiohttp
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from aioresponses import aioresponses
 
@@ -63,24 +65,38 @@ async def test_get_cameras_info_uses_v1_cctv(ucams_api, mock_ufanet_api):
 
 @pytest.mark.asyncio
 async def test_get_camera_image(ucams_api, mock_ufanet_api):
-    """Screenshot fetch goes through the dom session (no cams_server bootstrap)."""
+    """Screenshot fetch goes through the dom session (no cams_server bootstrap).
+
+    Uses a hand-rolled async-context-manager mock instead of a real
+    aiohttp.ClientSession — the latter spawns a daemon thread on close
+    that pytest-homeassistant-custom-component flags as a lingering thread
+    on 3.12.
+    """
     mock_ufanet_api.cctv_payload = [CCTV_FAKE_ITEM]
-    real_session = aiohttp.ClientSession()
+    expected_url = (
+        f"https://ucams-screen-1.example.com/api/v0/screenshots/"
+        f"{CCTV_FAKE_ITEM['number']}~600.jpg?token={LIVE_TOKEN}"
+    )
+
+    response = MagicMock()
+    response.raise_for_status = MagicMock()
+    response.read = AsyncMock(return_value=b"image_data")
+
+    @asynccontextmanager
+    async def fake_get(url):
+        assert url == expected_url
+        yield response
+
+    fake_session = MagicMock()
+    fake_session.get = fake_get
 
     async def get_authed():
-        return real_session
+        return fake_session
 
     mock_ufanet_api.get_authenticated_session = get_authed
-    try:
-        with aioresponses() as m:
-            m.get(
-                f"https://ucams-screen-1.example.com/api/v0/screenshots/{CCTV_FAKE_ITEM['number']}~600.jpg?token={LIVE_TOKEN}",
-                body=b"image_data",
-            )
-            image_data = await ucams_api.get_camera_image(CCTV_FAKE_ITEM["number"])
-            assert image_data == b"image_data"
-    finally:
-        await real_session.close()
+
+    image_data = await ucams_api.get_camera_image(CCTV_FAKE_ITEM["number"])
+    assert image_data == b"image_data"
 
 
 @pytest.mark.asyncio
