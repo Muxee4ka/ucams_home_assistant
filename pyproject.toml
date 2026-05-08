@@ -1,6 +1,6 @@
 [project]
 name = "ucams_home_assistant"
-version = "0.4.1"
+version = "0.5.0"
 description = "Home Assistant custom integration for Ufanet Ucams"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -10,12 +10,16 @@ authors = [{ name = "Muxee4ka", email = "muxee4ka@gmail.com" }]
 Homepage = "https://github.com/Muxee4ka/ucams_home_assistant"
 Issues = "https://github.com/Muxee4ka/ucams_home_assistant/issues"
 
+[tool.setuptools.packages.find]
+# `images/` lives at the repo root for README screenshots and isn't a Python
+# package — restrict discovery to the integration source.
+include = ["custom_components*"]
+
 [project.optional-dependencies]
 # Runtime requirements declared in custom_components/ucams/manifest.json — HA
 # installs them itself. They are repeated here only so local dev / CI imports
 # resolve.
 runtime = [
-    "transliterate",
     "pyjwt",
     "websockets",
 ]

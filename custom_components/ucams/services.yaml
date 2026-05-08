@@ -1,5 +1,4 @@
 snapshot:
-  supports_response: optional
   fields:
     entity_id:
       required: true
@@ -13,7 +12,6 @@ snapshot:
         text:
 
 get_archive:
-  supports_response: optional
   fields:
     entity_id:
       required: true
