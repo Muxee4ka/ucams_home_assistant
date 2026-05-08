@@ -32,8 +32,22 @@ class DomApi:
         self.password = config_entry.options[CONF_PASSWORD]
         self.base_url = config_entry.options[CONF_DOM_URL]
         self.session = aiohttp.ClientSession(headers=HEADERS, trust_env=True)
-        self.token = None
-        self.token_expiration = 0
+        self.token: str | None = None
+        self.token_expiration: int = 0
+        # Refresh token issued alongside `access` by /auth_by_contract/.
+        # Lives ~5 months and lets us renew access without re-sending the
+        # password. The refresh response rotates *both* tokens, so we update
+        # the stored refresh on each renewal.
+        self.refresh_token: str | None = None
+        self.refresh_token_expiration: int = 0
+
+    def _store_tokens(self, access: str, refresh: str | None) -> None:
+        self.token = access
+        self.token_expiration = int(decode_token(access).get("exp", 0))
+        self.session.headers["Authorization"] = f"JWT {access}"
+        if refresh:
+            self.refresh_token = refresh
+            self.refresh_token_expiration = int(decode_token(refresh).get("exp", 0))
 
     async def _authenticate(self):
         url = urljoin(self.base_url, "api/v1/auth/auth_by_contract/")
@@ -49,18 +63,46 @@ class DomApi:
         except aiohttp.ClientError as err:
             raise ConfigEntryNotReady(f"Authentication request failed: {err}") from err
 
-        access = data["token"]["access"]
-        self.token = access
-        # exp is the JWT expiration (unix timestamp); decode it instead of relying on
-        # the response envelope, which doesn't always carry it.
-        self.token_expiration = int(decode_token(access).get("exp", 0))
-        self.session.headers["Authorization"] = f"JWT {access}"
+        token = data["token"]
+        self._store_tokens(token["access"], token.get("refresh"))
+
+    async def _refresh_access(self) -> bool:
+        """Try to renew access via the refresh token. Returns True on success.
+
+        POST /api/v1/auth/refresh/ accepts `{"token": "<refresh-jwt>"}` and
+        returns a flat `{"access": ..., "refresh": ..., "exp": ...}` (note:
+        not nested under a "token" key like the login response). The refresh
+        token rotates on each call.
+        """
+        if not self.refresh_token:
+            return False
+        now = int(time())
+        if self.refresh_token_expiration and now >= self.refresh_token_expiration:
+            # Refresh JWT itself is dead; fall back to full login.
+            return False
+        url = urljoin(self.base_url, "api/v1/auth/refresh/")
+        try:
+            async with self.session.post(url, json={"token": self.refresh_token}) as resp:
+                if resp.status != 200:
+                    _LOGGER.debug("Refresh rejected by Ufanet (%s); will full-login", resp.status)
+                    return False
+                data = await resp.json()
+        except aiohttp.ClientError as err:
+            _LOGGER.debug("Refresh request errored (%s); will full-login", err)
+            return False
+
+        access = data.get("access")
+        if not access:
+            return False
+        self._store_tokens(access, data.get("refresh"))
+        return True
 
     async def get_authenticated_session(self):
         # token_expiration is a unix timestamp from the JWT, so compare against
         # wall-clock time, not loop.time() (which is monotonic from process start).
         now = int(time())
-        if not self.token or now >= self.token_expiration - TOKEN_REFRESH_BUFFER:
+        access_stale = not self.token or now >= self.token_expiration - TOKEN_REFRESH_BUFFER
+        if access_stale and not await self._refresh_access():
             await self._authenticate()
         return self.session
 

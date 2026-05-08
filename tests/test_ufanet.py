@@ -7,9 +7,18 @@ from aioresponses import aioresponses
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 AUTH_URL = "https://dom.example.com/api/v1/auth/auth_by_contract/"
+REFRESH_URL = "https://dom.example.com/api/v1/auth/refresh/"
 
 # Header { "typ": "JWT", "alg": "HS256" }, payload { "exp": 1850000000 } — a far-future expiry.
 FRESH_JWT = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE4NTAwMDAwMDB9.fake-sig"
+# Distinct fresh JWTs so we can tell post-refresh tokens apart.
+FRESH_JWT_2 = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE4NTAwMDAwMDB9.fake-sig-2"
+REFRESH_JWT = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE4NjAwMDAwMDB9.fake-refresh"
+EXPIRED_REFRESH_JWT = (
+    # exp = 1577836800 (2020-01-01)
+    "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE1Nzc4MzY4MDB9.fake-old-refresh"
+)
+EXPIRED_ACCESS_JWT = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE1Nzc4MzY4MDB9.fake-old"
 
 
 @pytest.mark.asyncio
@@ -74,3 +83,93 @@ async def test_authenticate_raises_not_ready_on_network_error(dom_api):
         m.post(AUTH_URL, exception=aiohttp.ClientConnectionError("boom"))
         with pytest.raises(ConfigEntryNotReady):
             await dom_api._authenticate()
+
+
+@pytest.mark.asyncio
+async def test_login_stores_refresh_token(dom_api):
+    """auth_by_contract returns token.refresh; we stash it for later renewals."""
+    with aioresponses() as m:
+        m.post(AUTH_URL, payload={"token": {"access": FRESH_JWT, "refresh": REFRESH_JWT}})
+        await dom_api._authenticate()
+
+    assert dom_api.refresh_token == REFRESH_JWT
+    assert dom_api.refresh_token_expiration == 1860000000
+
+
+@pytest.mark.asyncio
+async def test_expired_access_uses_refresh_endpoint(dom_api):
+    """Expired access + valid refresh: hit /refresh/, no contract+password resend."""
+    with aioresponses() as m:
+        m.post(
+            AUTH_URL,
+            payload={"token": {"access": EXPIRED_ACCESS_JWT, "refresh": REFRESH_JWT}},
+        )
+        m.post(REFRESH_URL, payload={"access": FRESH_JWT_2, "refresh": REFRESH_JWT})
+
+        await dom_api.get_authenticated_session()  # primes the expired token + refresh
+        await dom_api.get_authenticated_session()  # should renew via refresh
+
+        assert dom_api.token == FRESH_JWT_2
+        # auth_by_contract was called exactly once
+        auth_keys = [k for k in m.requests if k[1].path.endswith("auth_by_contract/")]
+        assert sum(len(m.requests[k]) for k in auth_keys) == 1
+        # refresh was called exactly once
+        refresh_keys = [k for k in m.requests if k[1].path.endswith("auth/refresh/")]
+        assert sum(len(m.requests[k]) for k in refresh_keys) == 1
+
+
+@pytest.mark.asyncio
+async def test_refresh_token_rotates_on_renewal(dom_api):
+    """Each refresh response carries a new refresh token; we must use the new one."""
+    rotated = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJleHAiOjE5MDAwMDAwMDB9.rotated"
+    with aioresponses() as m:
+        m.post(
+            AUTH_URL,
+            payload={"token": {"access": EXPIRED_ACCESS_JWT, "refresh": REFRESH_JWT}},
+        )
+        m.post(REFRESH_URL, payload={"access": FRESH_JWT_2, "refresh": rotated})
+
+        await dom_api.get_authenticated_session()
+        await dom_api.get_authenticated_session()
+
+        assert dom_api.refresh_token == rotated
+        assert dom_api.refresh_token_expiration == 1900000000
+
+
+@pytest.mark.asyncio
+async def test_refresh_failure_falls_back_to_full_login(dom_api):
+    """If /refresh/ rejects us (e.g. invalid/revoked refresh), do a full re-auth."""
+    with aioresponses() as m:
+        m.post(
+            AUTH_URL,
+            payload={"token": {"access": EXPIRED_ACCESS_JWT, "refresh": REFRESH_JWT}},
+        )
+        m.post(REFRESH_URL, status=401, payload={"detail": "Не валидный токен"})
+        m.post(AUTH_URL, payload={"token": {"access": FRESH_JWT_2, "refresh": REFRESH_JWT}})
+
+        await dom_api.get_authenticated_session()  # primes expired access + refresh
+        await dom_api.get_authenticated_session()  # tries refresh, falls through to login
+
+        assert dom_api.token == FRESH_JWT_2
+        # auth_by_contract was called twice (initial + fallback)
+        auth_keys = [k for k in m.requests if k[1].path.endswith("auth_by_contract/")]
+        assert sum(len(m.requests[k]) for k in auth_keys) == 2
+
+
+@pytest.mark.asyncio
+async def test_expired_refresh_skips_refresh_endpoint(dom_api):
+    """If the refresh JWT itself is expired, don't waste a request — full login."""
+    with aioresponses() as m:
+        m.post(
+            AUTH_URL,
+            payload={"token": {"access": EXPIRED_ACCESS_JWT, "refresh": EXPIRED_REFRESH_JWT}},
+        )
+        m.post(AUTH_URL, payload={"token": {"access": FRESH_JWT_2, "refresh": REFRESH_JWT}})
+
+        await dom_api.get_authenticated_session()
+        await dom_api.get_authenticated_session()
+
+        assert dom_api.token == FRESH_JWT_2
+        # No refresh call at all
+        refresh_keys = [k for k in m.requests if k[1].path.endswith("auth/refresh/")]
+        assert sum(len(m.requests[k]) for k in refresh_keys) == 0
