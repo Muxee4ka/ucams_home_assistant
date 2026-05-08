@@ -61,13 +61,14 @@ def mock_ufanet_api():
 
 
 async def _drain_aiohttp_shutdown_threads():
-    """Give aiohttp's `_run_safe_shutdown_loop` daemon a tick to exit.
+    """Wait for aiohttp's `_run_safe_shutdown_loop` daemons to exit.
 
     pytest-homeassistant-custom-component's lingering-thread guard runs
-    immediately after teardown; on Python 3.12 the daemon survives just
-    long enough to trip it. A single event-loop yield is enough.
+    immediately after teardown; on Python 3.12 the daemon outlives a
+    single event-loop yield (3.13 cleans up faster). A short fixed
+    delay is the simplest reliable fix.
     """
-    await asyncio.sleep(0)
+    await asyncio.sleep(0.2)
 
 
 @pytest.fixture
