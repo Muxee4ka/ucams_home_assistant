@@ -9,5 +9,5 @@
     "iot_class": "cloud_polling",
     "issue_tracker": "https://github.com/Muxee4ka/ucams_home_assistant/issues",
     "requirements": ["PyJWT>=2.0"],
-    "version": "0.5.0-dev"
+    "version": "0.5.0"
 }
