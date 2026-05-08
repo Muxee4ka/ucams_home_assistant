@@ -60,30 +60,6 @@ def mock_ufanet_api():
     return MockUfanetApi()
 
 
-async def _drain_aiohttp_shutdown_threads():
-    """Wait for aiohttp's `_run_safe_shutdown_loop` daemons to exit.
-
-    pytest-homeassistant-custom-component's lingering-thread guard fires
-    immediately after teardown; on Linux+Python 3.12 the daemon outlives
-    short waits, so we poll (3.13 cleans up faster). Skipped on Windows
-    where the plugin behaves differently and polling can hang.
-    """
-    if sys.platform == "win32":
-        return
-
-    import threading
-
-    deadline = 1.5
-    elapsed = 0.0
-    step = 0.05
-    while elapsed < deadline:
-        survivors = [t for t in threading.enumerate() if "_run_safe_shutdown_loop" in t.name]
-        if not survivors:
-            return
-        await asyncio.sleep(step)
-        elapsed += step
-
-
 @pytest.fixture
 async def ucams_api(config_entry, mock_ufanet_api):
     """A UcamsApi instance with a stubbed-out hass.
@@ -97,7 +73,6 @@ async def ucams_api(config_entry, mock_ufanet_api):
     api = UcamsApi(MagicMock(spec=HomeAssistant), config_entry, mock_ufanet_api)
     yield api
     await api.close()
-    await _drain_aiohttp_shutdown_threads()
 
 
 @pytest.fixture
@@ -107,4 +82,3 @@ async def dom_api(config_entry):
     api = DomApi(MagicMock(spec=HomeAssistant), config_entry)
     yield api
     await api.close()
-    await _drain_aiohttp_shutdown_threads()

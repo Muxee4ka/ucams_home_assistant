@@ -2,6 +2,7 @@ import logging
 from time import time
 from urllib.parse import urljoin
 
+import aiohttp
 from aiohttp import ClientSession
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -54,7 +55,12 @@ class UcamsApi:
         contract response on first use.
         """
         if self._cams_session is None:
-            self._cams_session = ClientSession(headers=HEADERS)
+            self._cams_session = ClientSession(
+                headers=HEADERS,
+                connector=aiohttp.TCPConnector(
+                    resolver=aiohttp.ThreadedResolver(),
+                ),
+            )
         now = int(time())
         if (
             self.token

@@ -1,3 +1,4 @@
+import aiohttp
 import logging
 from time import time
 from urllib.parse import urljoin
@@ -31,7 +32,13 @@ class DomApi:
         self.username = config_entry.options[CONF_USERNAME]
         self.password = config_entry.options[CONF_PASSWORD]
         self.base_url = config_entry.options[CONF_DOM_URL]
-        self.session = aiohttp.ClientSession(headers=HEADERS, trust_env=True)
+        self.session = aiohttp.ClientSession(
+            headers=HEADERS,
+            trust_env=True,
+            connector=aiohttp.TCPConnector(
+                resolver=aiohttp.ThreadedResolver(),
+            ),
+        )
         self.token: str | None = None
         self.token_expiration: int = 0
         # Refresh token issued alongside `access` by /auth_by_contract/.
