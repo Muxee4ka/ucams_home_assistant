@@ -60,6 +60,16 @@ def mock_ufanet_api():
     return MockUfanetApi()
 
 
+async def _drain_aiohttp_shutdown_threads():
+    """Give aiohttp's `_run_safe_shutdown_loop` daemon a tick to exit.
+
+    pytest-homeassistant-custom-component's lingering-thread guard runs
+    immediately after teardown; on Python 3.12 the daemon survives just
+    long enough to trip it. A single event-loop yield is enough.
+    """
+    await asyncio.sleep(0)
+
+
 @pytest.fixture
 async def ucams_api(config_entry, mock_ufanet_api):
     """A UcamsApi instance with a stubbed-out hass.
@@ -73,6 +83,7 @@ async def ucams_api(config_entry, mock_ufanet_api):
     api = UcamsApi(MagicMock(spec=HomeAssistant), config_entry, mock_ufanet_api)
     yield api
     await api.close()
+    await _drain_aiohttp_shutdown_threads()
 
 
 @pytest.fixture
@@ -82,3 +93,4 @@ async def dom_api(config_entry):
     api = DomApi(MagicMock(spec=HomeAssistant), config_entry)
     yield api
     await api.close()
+    await _drain_aiohttp_shutdown_threads()
