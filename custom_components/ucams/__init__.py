@@ -236,7 +236,7 @@ def _async_register_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError(f"Не удалось получить архив для камеры {entity_id}")
 
         _LOGGER.info("Получена ссылка на архив: %s", archive_url)
-        sensor = data["archive_link_sensors"].get(camera.camera_id)
+        sensor = data.get("archive_link_sensors", {}).get(camera.camera_id)
         if sensor:
             sensor.update_link(archive_url)
 
