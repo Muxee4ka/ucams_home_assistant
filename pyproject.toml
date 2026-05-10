@@ -1,0 +1,83 @@
+[project]
+name = "ucams_home_assistant"
+version = "0.5.0"
+description = "Home Assistant custom integration for Ufanet Ucams"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [{ name = "Muxee4ka", email = "muxee4ka@gmail.com" }]
+
+[project.urls]
+Homepage = "https://github.com/Muxee4ka/ucams_home_assistant"
+Issues = "https://github.com/Muxee4ka/ucams_home_assistant/issues"
+
+[tool.setuptools.packages.find]
+# `images/` lives at the repo root for README screenshots and isn't a Python
+# package — restrict discovery to the integration source.
+include = ["custom_components*"]
+
+[project.optional-dependencies]
+# Runtime requirements declared in custom_components/ucams/manifest.json — HA
+# installs them itself. They are repeated here only so local dev / CI imports
+# resolve.
+runtime = [
+    "pyjwt",
+    "websockets",
+]
+dev = [
+    "homeassistant",
+    "aiohttp",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-homeassistant-custom-component",
+    "aioresponses",
+    "ruff",
+    "mypy",
+    "pre-commit",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [".venv", "build", "dist"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",  # pycodestyle
+    "F",       # pyflakes
+    "I",       # isort
+    "UP",      # pyupgrade
+    "B",       # bugbear
+    "SIM",     # flake8-simplify
+    "C4",      # flake8-comprehensions
+    "RUF",     # ruff-specific
+    "ASYNC",   # flake8-async (catches blocking calls in async)
+    "PIE",     # flake8-pie
+]
+ignore = [
+    "E501",    # handled by formatter
+    "RUF001",  # ambiguous unicode in strings (we have Russian text on purpose)
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["custom_components"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+# Start permissive; we'll tighten in phase 4.
+check_untyped_defs = false
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning:homeassistant.*",
+]

@@ -1,23 +1,57 @@
 {
     "config": {
         "abort": {
-            "already_configured": "already configured"
+            "already_configured": "Already configured"
         },
         "error": {
-            "cannot_connect": "cannot connect",
-            "invalid_auth": "invalid_auth",
-            "unknown": "unknown"
+            "cannot_connect": "Cannot connect",
+            "invalid_auth": "Invalid authentication",
+            "unknown": "Unknown error"
         },
         "step": {
             "user": {
                 "data": {
                     "link": "Ucams link",
                     "dom_link": "Ufanet dom link",
-                    "password": "password",
-                    "username": "username",
-                    "camera_image_refresh_interval": "Camera refresh interval"
+                    "password": "Password",
+                    "username": "Username",
+                    "camera_image_refresh_interval": "Camera refresh interval (seconds)"
                 }
             }
         }
-   }
+    },
+    "services": {
+        "snapshot": {
+            "name": "Take camera snapshot",
+            "description": "Grab a single frame from the camera's RTSP stream and save it to a file. Falls back to a placeholder image if the stream is unavailable.",
+            "fields": {
+                "entity_id": {
+                    "name": "Camera",
+                    "description": "Ucams camera entity to snapshot."
+                },
+                "filename": {
+                    "name": "Filename",
+                    "description": "Absolute path where the snapshot will be written. Leave empty to auto-save under /config/www/ucams_snapshots/ and get a /local/ URL back."
+                }
+            }
+        },
+        "get_archive": {
+            "name": "Get archive link",
+            "description": "Request an archive URL for a camera over a time range. The link is published on the camera's archive sensor.",
+            "fields": {
+                "entity_id": {
+                    "name": "Camera",
+                    "description": "Ucams camera entity to fetch archive for."
+                },
+                "start_time": {
+                    "name": "Start time",
+                    "description": "Archive start time as a Unix timestamp (UTC)."
+                },
+                "duration": {
+                    "name": "Duration",
+                    "description": "Archive duration in seconds."
+                }
+            }
+        }
+    }
 }

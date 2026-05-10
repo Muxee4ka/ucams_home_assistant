@@ -1,43 +1,36 @@
 import datetime
 import logging
-import re
-import shlex
-import subprocess
+from functools import cached_property
 
-from homeassistant.components.camera import (
-    Camera,
-    CameraEntityFeature, _async_get_stream_image,
-)
+from homeassistant.components.camera import Camera, CameraEntityFeature, async_get_image
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.util.dt import now
 
-from . import UcamsApi
-from .utils import TOKEN_REFRESH_BUFFER, DOMAIN
+from .ucams import UcamsApi
+from .utils import DOMAIN, TOKEN_REFRESH_BUFFER, build_object_id, parse_house_area
 
 _LOGGER = logging.getLogger(__name__)
-
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
     cameras_api = hass.data[config_entry.entry_id]["cameras_api"]
     cameras_info = await cameras_api.get_cameras_info()
     entities = [
-        Ucams(hass, config_entry, cameras_api, camera_info)
-        for camera_info in cameras_info.values()
+        Ucams(hass, config_entry, cameras_api, camera_info) for camera_info in cameras_info.values()
     ]
+    hass.data[config_entry.entry_id]["camera_entities"] = {e.entity_id: e for e in entities}
     async_add_entities(entities)
 
 
 class Ucams(Camera):
     def __init__(
-            self,
-            hass: HomeAssistant,
-            config_entry: ConfigEntry,
-            cameras_api: UcamsApi,
-            camera_info: dict
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        cameras_api: UcamsApi,
+        camera_info: dict,
     ) -> None:
         super().__init__()
 
@@ -46,25 +39,21 @@ class Ucams(Camera):
         self.cameras_api = cameras_api
         self.camera_id = camera_info["id"]
         self.device_name = cameras_api.build_device_name(camera_info["title"])
-        device_slug = re.sub(r"[^a-z0-9]+", "_", self.device_name.lower()).strip("_")
-        camera_slug = re.sub(r"[^a-z0-9]+", "_", str(self.camera_id).lower()).strip("_")
-        object_id = f"{device_slug}_{camera_slug}" if camera_slug else device_slug
-        self.entity_id = f"camera.{object_id}"
+        self._suggested_area = parse_house_area(camera_info.get("address"))
+        self.entity_id = f"camera.{build_object_id(self.device_name, self.camera_id)}"
 
         self._attr_unique_id = f"camera-{self.camera_id}"
         self._attr_name = self.device_name
+        self._attr_icon = "mdi:cctv"
         self._attr_supported_features = CameraEntityFeature.STREAM
         self._stream_refresh_cancel_fn = async_track_time_interval(
             self.hass,
             self._stream_refresh,
             datetime.timedelta(seconds=TOKEN_REFRESH_BUFFER),
         )
-        self._entity_picture = None
 
     async def _stream_refresh(self, now: datetime.datetime) -> None:
-        _LOGGER.debug(
-            "Checking if stream url should be updated for camera %s", self.camera_id
-        )
+        _LOGGER.debug("Checking if stream url should be updated for camera %s", self.camera_id)
         url = await self.stream_source()
         if self.stream and self.stream.source != url:
             _LOGGER.debug("Updating camera %s stream source to %s", self.camera_id, url)
@@ -79,83 +68,37 @@ class Ucams(Camera):
         _LOGGER.debug("Camera %s stream source is %s", self.camera_id, url)
         return url
 
-    async def async_camera_image(
-            self, width: int | None = None, height: int | None = None
-    ) -> bytes | None:
-        return await _async_get_stream_image(self, wait_for_next_keyframe=True)
-
-    async def async_update(self):
-        """ Update camera entity. """
-        self._entity_picture = self.cameras_api.get_camera_image(self.camera_id)
-
-    @property
-    def entity_picture(self) -> str | None:
-        """ Return the camera image URL. """
-        return self._entity_picture
+    @cached_property
+    def use_stream_for_stills(self) -> bool:
+        # No still-image endpoint upstream — keyframes are pulled from RTSP.
+        return True
 
     @property
     def device_info(self) -> DeviceInfo:
-        return {
+        info: DeviceInfo = {
             "identifiers": {(DOMAIN, f"{self.config_entry_id}_{self.camera_id}")},
             "name": self.device_name,
             "manufacturer": "Ufanet",
         }
+        if self._suggested_area:
+            info["suggested_area"] = self._suggested_area
+        return info
 
     async def handle_snapshot_from_rtsp(self) -> bytes | None:
-        """
-        Get snapshot from RTSP stream.
-        """
-        rtsp_url = await self.cameras_api.get_camera_stream_url(self.camera_id)  # Получение RTSP URL потока
-        if not rtsp_url:
-            _LOGGER.error("RTSP URL не найден для камеры %s", self.camera_id)
-            return None
-
-        command = (
-            f"ffmpeg -i {shlex.quote(rtsp_url)} -vf 'select=eq(n\\,0)' "
-            f"-vframes 1 -q:v 2 -f image2 -"
-        )
-
-        _LOGGER.debug("Выполняется команда FFmpeg для RTSP: %s", command)
-
-        # Запуск FFmpeg процесса
-        ffmpeg_cmd = subprocess.Popen(
-            shlex.split(command),
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-
+        """Grab a single frame using HA's stream component (same path as the
+        UI screenshot button)."""
         try:
-            output_stream, error_stream = ffmpeg_cmd.communicate(timeout=15)  # Тайм-аут 15 секунд
-
-            if ffmpeg_cmd.returncode != 0:
-                _LOGGER.error(
-                    "Ошибка FFmpeg для камеры %s: %s",
-                    self.camera_id,
-                    error_stream.decode()
-                )
-                return None
-
-            _LOGGER.info("Снимок успешно получен для камеры %s", self.camera_id)
-            return output_stream
-
-        except subprocess.TimeoutExpired:
-            _LOGGER.error("FFmpeg для камеры %s превысил тайм-аут", self.camera_id)
-            ffmpeg_cmd.terminate()
+            image = await async_get_image(self.hass, self.entity_id, timeout=15)
+        except Exception as err:
+            _LOGGER.exception("Snapshot failed for camera %s: %r", self.camera_id, err)
             return None
-
-        except Exception as e:
-            _LOGGER.error("Ошибка при выполнении FFmpeg для камеры %s: %s", self.camera_id, e)
-            return None
-
-        finally:
-            ffmpeg_cmd.terminate()
-            ffmpeg_cmd.wait()
+        return image.content
 
     async def get_camera_archive(self, start_time, duration):
-        archive_url = await self.cameras_api.get_camera_archive(self.camera_id, start_time, duration)
+        archive_url = await self.cameras_api.get_camera_archive(
+            self.camera_id, start_time, duration
+        )
         if not archive_url:
             _LOGGER.error("ARCHIVE URL не получен для камеры %s", self.camera_id)
             return None
         return archive_url
-

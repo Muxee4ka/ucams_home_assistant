@@ -1,10 +1,11 @@
-import time
 import logging
+import time
+
 from homeassistant.components.button import ButtonEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 
-from custom_components.ucams.utils import DOMAIN
+from .utils import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,15 +24,33 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     for camera in cameras_info.values():
         device_name = camera["title"]
         camera_id = camera["id"]
-        buttons.append(ArchiveButton(hass, config_entry, cameras_api, camera_id, device_name, "Last 5 min", 300))
-        buttons.append(ArchiveButton(hass, config_entry, cameras_api, camera_id, device_name, "Last hour", 3600))
-        buttons.append(ArchiveButton(hass, config_entry, cameras_api, camera_id, device_name, "Last 5 hours", 5 * 3600))
+        buttons.append(
+            ArchiveButton(
+                hass, config_entry, cameras_api, camera_id, device_name, "за 5 минут", 300
+            )
+        )
+        buttons.append(
+            ArchiveButton(hass, config_entry, cameras_api, camera_id, device_name, "за 1 час", 3600)
+        )
+        buttons.append(
+            ArchiveButton(
+                hass, config_entry, cameras_api, camera_id, device_name, "за 5 часов", 5 * 3600
+            )
+        )
     async_add_entities(buttons)
 
 
 class ArchiveButton(ButtonEntity):
-    def __init__(self, hass: HomeAssistant, config_entry, cameras_api, camera_id: str, device_name: str, label: str,
-                 duration: int):
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry,
+        cameras_api,
+        camera_id: str,
+        device_name: str,
+        label: str,
+        duration: int,
+    ):
         """
         :param hass: HomeAssistant
         :param config_entry: ConfigEntry
@@ -51,6 +70,7 @@ class ArchiveButton(ButtonEntity):
 
         self._attr_unique_id = f"archive_button_{camera_id}_{duration}"
         self._attr_name = f"Архив {label}"
+        self._attr_icon = "mdi:video-vintage"
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -66,13 +86,22 @@ class ArchiveButton(ButtonEntity):
         start_time = int(time.time()) - self._duration
         _LOGGER.debug(
             "Нажата кнопка '%s' для камеры %s: start_time=%d, duration=%d",
-            self._label, self._camera_id, start_time, self._duration
+            self._label,
+            self._camera_id,
+            start_time,
+            self._duration,
         )
-        archive_url = await self._cameras_api.get_camera_archive(self._camera_id, start_time, self._duration)
+        archive_url = await self._cameras_api.get_camera_archive(
+            self._camera_id, start_time, self._duration
+        )
         if archive_url:
             _LOGGER.info("Получена ссылка на архив для '%s': %s", self._label, archive_url)
-            sensor = self.hass.data[self._config_entry.entry_id]["archive_link_sensors"].get(self._camera_id)
+            sensor = self.hass.data[self._config_entry.entry_id]["archive_link_sensors"].get(
+                self._camera_id
+            )
             if sensor:
                 sensor.update_link(archive_url, comment=self._label)
         else:
-            _LOGGER.error("Не удалось получить архив для камеры %s, период '%s'", self._camera_id, self._label)
+            _LOGGER.error(
+                "Не удалось получить архив для камеры %s, период '%s'", self._camera_id, self._label
+            )
