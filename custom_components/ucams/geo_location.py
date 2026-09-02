@@ -8,7 +8,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util.location import distance
 
 from .ucams import UcamsApi
-from .utils import DOMAIN
+from .utils import DOMAIN, PUBLIC_CAMERA_MODEL, all_cameras_info, build_object_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -16,10 +16,10 @@ SOURCE = "ucams"
 
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, async_add_entities):
-    cameras_api: UcamsApi = hass.data[config_entry.entry_id]["cameras_api"]
-    cameras_info = hass.data[config_entry.entry_id]["cameras_info"]
+    data = hass.data[config_entry.entry_id]
+    cameras_api: UcamsApi = data["cameras_api"]
     entities = []
-    for camera_info in cameras_info.values():
+    for camera_info in all_cameras_info(data):
         lat = camera_info.get("latitude")
         lon = camera_info.get("longitude")
         if lat is None or lon is None:
@@ -44,11 +44,21 @@ class UcamsLocation(GeolocationEvent):
         self.hass = hass
         self.config_entry_id = config_entry.entry_id
         self.camera_id = camera_info["id"]
-        self.device_name = cameras_api.build_device_name(camera_info["title"])
+        self.display_name = cameras_api.build_display_name(camera_info)
         self._address = camera_info.get("address")
+        self._is_public = bool(camera_info.get("is_public"))
 
         self._attr_unique_id = f"geo-{self.camera_id}"
-        self._attr_name = self.device_name
+        self._attr_name = self.display_name
+        if self._is_public:
+            # City-camera names are Russian, and this platform otherwise derives
+            # the entity_id from the name. Pin it to the same transliterated slug
+            # camera/image use so the three entities of one camera match — and so
+            # a rename upstream can't move the entity. Contract cameras keep the
+            # auto-derived id they have always had.
+            self.entity_id = "geo_location.{}".format(
+                build_object_id(cameras_api.build_device_name(camera_info["title"]), self.camera_id)
+            )
         self._attr_latitude = float(camera_info["latitude"])
         self._attr_longitude = float(camera_info["longitude"])
 
@@ -71,8 +81,11 @@ class UcamsLocation(GeolocationEvent):
 
     @property
     def device_info(self) -> DeviceInfo:
-        return {
+        info: DeviceInfo = {
             "identifiers": {(DOMAIN, f"{self.config_entry_id}_{self.camera_id}")},
-            "name": self.device_name,
+            "name": self.display_name,
             "manufacturer": "Ufanet",
         }
+        if self._is_public:
+            info["model"] = PUBLIC_CAMERA_MODEL
+        return info

@@ -1,6 +1,6 @@
 [project]
 name = "ucams_home_assistant"
-version = "0.5.0"
+version = "0.6.0"
 description = "Home Assistant custom integration for Ufanet Ucams"
 readme = "README.md"
 requires-python = ">=3.12"

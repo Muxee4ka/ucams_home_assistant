@@ -9,16 +9,24 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_time_interval
 
 from .ucams import UcamsApi
-from .utils import DOMAIN, TOKEN_REFRESH_BUFFER, build_object_id, parse_house_area
+from .utils import (
+    DOMAIN,
+    PUBLIC_CAMERA_MODEL,
+    TOKEN_REFRESH_BUFFER,
+    all_cameras_info,
+    build_object_id,
+    parse_house_area,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    cameras_api = hass.data[config_entry.entry_id]["cameras_api"]
-    cameras_info = await cameras_api.get_cameras_info()
+    data = hass.data[config_entry.entry_id]
+    cameras_api = data["cameras_api"]
     entities = [
-        Ucams(hass, config_entry, cameras_api, camera_info) for camera_info in cameras_info.values()
+        Ucams(hass, config_entry, cameras_api, camera_info)
+        for camera_info in all_cameras_info(data)
     ]
     hass.data[config_entry.entry_id]["camera_entities"] = {e.entity_id: e for e in entities}
     async_add_entities(entities)
@@ -38,12 +46,19 @@ class Ucams(Camera):
         self.config_entry_id = config_entry.entry_id
         self.cameras_api = cameras_api
         self.camera_id = camera_info["id"]
+        # device_name feeds the entity_id slug; display_name is what the UI shows.
         self.device_name = cameras_api.build_device_name(camera_info["title"])
-        self._suggested_area = parse_house_area(camera_info.get("address"))
+        self.display_name = cameras_api.build_display_name(camera_info)
+        self._is_public = bool(camera_info.get("is_public"))
+        # City cameras are not at the user's home — pinning them to an area
+        # would spawn one area per street in the registry.
+        self._suggested_area = (
+            None if self._is_public else parse_house_area(camera_info.get("address"))
+        )
         self.entity_id = f"camera.{build_object_id(self.device_name, self.camera_id)}"
 
         self._attr_unique_id = f"camera-{self.camera_id}"
-        self._attr_name = self.device_name
+        self._attr_name = self.display_name
         self._attr_icon = "mdi:cctv"
         self._attr_supported_features = CameraEntityFeature.STREAM
         self._stream_refresh_cancel_fn = async_track_time_interval(
@@ -77,9 +92,11 @@ class Ucams(Camera):
     def device_info(self) -> DeviceInfo:
         info: DeviceInfo = {
             "identifiers": {(DOMAIN, f"{self.config_entry_id}_{self.camera_id}")},
-            "name": self.device_name,
+            "name": self.display_name,
             "manufacturer": "Ufanet",
         }
+        if self._is_public:
+            info["model"] = PUBLIC_CAMERA_MODEL
         if self._suggested_area:
             info["suggested_area"] = self._suggested_area
         return info

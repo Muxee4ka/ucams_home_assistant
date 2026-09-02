@@ -7,15 +7,21 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_time_interval
 
 from .ucams import UcamsApi
-from .utils import CONF_CAMERA_IMAGE_REFRESH_INTERVAL, DOMAIN, build_object_id
+from .utils import (
+    CONF_CAMERA_IMAGE_REFRESH_INTERVAL,
+    DOMAIN,
+    PUBLIC_CAMERA_MODEL,
+    all_cameras_info,
+    build_object_id,
+)
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    cameras_api = hass.data[config_entry.entry_id]["cameras_api"]
-    cameras_info = await cameras_api.get_cameras_info()
+    data = hass.data[config_entry.entry_id]
+    cameras_api = data["cameras_api"]
     entities = [
         UcamsCameraImageEntity(hass, config_entry, cameras_api, camera_info)
-        for camera_info in cameras_info.values()
+        for camera_info in all_cameras_info(data)
     ]
     async_add_entities(entities)
 
@@ -34,10 +40,13 @@ class UcamsCameraImageEntity(ImageEntity):
         self.config_entry_id = config_entry.entry_id
         self.cameras_api = cameras_api
         self.camera_id = camera_info["id"]
+        # device_name feeds the entity_id slug; display_name is what the UI shows.
         self.device_name = self.cameras_api.build_device_name(camera_info["title"])
+        self.display_name = self.cameras_api.build_display_name(camera_info)
+        self._is_public = bool(camera_info.get("is_public"))
         self.entity_id = f"image.{build_object_id(self.device_name, self.camera_id)}"
         self._attr_unique_id = f"image-{self.camera_id}"
-        self._attr_name = self.device_name
+        self._attr_name = self.display_name
         self._attr_icon = "mdi:image-area"
         refresh_seconds = config_entry.options[CONF_CAMERA_IMAGE_REFRESH_INTERVAL]
         self._refresh_cancel_fn = async_track_time_interval(
@@ -64,8 +73,11 @@ class UcamsCameraImageEntity(ImageEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        return {
+        info: DeviceInfo = {
             "identifiers": {(DOMAIN, f"{self.config_entry_id}_{self.camera_id}")},
-            "name": self.device_name,
+            "name": self.display_name,
             "manufacturer": "Ufanet",
         }
+        if self._is_public:
+            info["model"] = PUBLIC_CAMERA_MODEL
+        return info

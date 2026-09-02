@@ -24,11 +24,21 @@ Single HACS integration under `custom_components/ucams/` that surfaces Ufanet's 
 Two backends, but the integration only contacts one of them on the hot path:
 
 - **`ufanet.DomApi`** (`ufanet.py`) — `dom.ufanet.ru`. Authenticates with contract+password (`/api/v1/auth/auth_by_contract/`). Exposes contracts, skud (intercoms), call history, and the **flat camera list via `/api/v1/cctv`** (`get_cctv_list`). Uses `JWT <token>` auth header.
-- **`ucams.UcamsApi`** (`ucams.py`) — wraps `DomApi` for the camera read path; only authenticates separately against the regional `cams_server` when **archive** is requested. Its `cams_server` URL is **discovered lazily** from `DomApi.get_contract_info()` (`isp_org.cams_server.url`) on the first archive call.
+- **`ucams.UcamsApi`** (`ucams.py`) — wraps `DomApi` for the camera read path; only authenticates separately against the regional `cams_server` when **archive** or **public city cameras** are requested. Its `cams_server` URL is **discovered lazily** from `DomApi.get_contract_info()` (`isp_org.cams_server.url`) on the first archive call.
 
 `utils.decode_token` decodes JWT payloads (with a manual base64 fallback for non-standard tokens) and `TOKEN_REFRESH_BUFFER` (300s) is the slack used everywhere expiry is checked.
 
 `UcamsApi.get_cameras_info` calls `DomApi.get_cctv_list` (single round-trip, no pagination) and pre-builds per-camera RTSP / WebSocket / screenshot URLs from each item's `servers.{domain, screenshot_domain}` and `token_l` (live JWT, `t:"L"`). `get_camera_url` re-fetches when `token_l` is near expiry. `get_camera_image` goes through the dom session — no cams_server bootstrap needed for screenshots.
+
+**Public «city» cameras (opt-in)** are the second cams_server path.
+`UcamsApi.get_public_cameras_info` POSTs `/api/v0/cameras/search/` with
+`public_cameras: true, user_cameras: false` — that returns every public camera
+the ISP runs (~2000, all towns), each with a `token_l` minted for the account.
+`query` filters server-side on title *and* address; the radius filter is local
+(`filter_public_cameras`) because the API has no geo filter. Token refresh goes
+through `/api/v0/cameras/this/` with the stored `numbers`, never a re-search, so
+a camera can't vanish mid-session. **They are live-only** — `token_r`/`token_d`
+come back `null`, so `get_camera_archive` refuses them before making a request.
 
 `UcamsApi.get_camera_archive` is the only path that still hits cams_server: only `/api/v0/cameras/this/` issues `token_d` (archive download JWT, `t:"D"`, with embedded `ds`/`dd` start+duration). `_ensure_cams_session` lazily auths there using the dom JWT as bootstrap. `token_r` from `/api/v1/cctv` is **not** a substitute — empirically returns 403 against the archive endpoint.
 
@@ -39,11 +49,19 @@ Two backends, but the integration only contacts one of them on the hot path:
 `hass.data[entry_id]` holds the shared bag every platform reads from:
 
 ```
-{ "cameras_api", "dom_api", "cameras_info",
+{ "cameras_api", "dom_api", "cameras_info", "public_cameras_info",
   "camera_entities" (set by camera.py),
   "archive_link_sensors" (set by sensor.py),
   "call_history_coordinator" (set by sensor.py) }
 ```
+
+`public_cameras_info` is deliberately a **separate bag** from `cameras_info`:
+only `camera`/`image`/`geo_location` merge the two (via `utils.all_cameras_info`).
+Archive buttons, archive-link sensors and `_assign_areas_by_address` keep reading
+`cameras_info` alone — city cameras have no archive, and pinning them to areas
+would spawn one area per street. Their discovery failure is non-fatal by design
+(`_async_load_public_cameras` logs and returns `{}`); the user's own cameras must
+still come up.
 
 Services (`ucams.snapshot`, `ucams.get_archive`) are registered once globally and only removed when the last `ucams` entry unloads (`_ucams_entries`). The snapshot service falls back to `assets/no_snapshot.png` when the RTSP grab fails so automations always get a file.
 
@@ -64,6 +82,23 @@ Services (`ucams.snapshot`, `ucams.get_archive`) are registered once globally an
 ### Conventions worth knowing
 
 - **Entity ids are slugified through `utils.transliterate_ru` + `build_object_id`.** The `_RU_TRANSLIT` mapping in `utils.py` is **vendored verbatim from `transliterate>=1.10`** to preserve every entity_id that existed before the dependency was dropped — don't "improve" it.
+- **Device names come from the *last* platform to register the device.** All
+  platforms pass a `name` in `DeviceInfo` for the same identifiers, and
+  `sensor.ArchiveLinkSensor` passes the **raw Russian** `camera["title"]` while
+  camera/image pass the transliterated one — so contract-camera devices read
+  Russian in the UI. City cameras have no archive sensor, so they need
+  `UcamsApi.build_display_name` to get the same treatment. `build_device_name`
+  stays the source of the **entity_id** slug for everyone; only the displayed
+  name differs. `geo_location` pins `entity_id` explicitly for public cameras
+  because it otherwise derives it from the (now Russian) name.
+- **`short_address` vs `parse_house_area`.** `parse_house_area` (area names) only
+  strips a dotted `"г. <city>, "` prefix; `/api/v1/cctv` and the public list both
+  return the undotted `"г <city>, "` form, which it leaves alone — changing that
+  would rename every existing area, so it stays as is. `short_address` (display
+  names only) just keeps the trailing `"street, house"` pair and is prefix-format
+  agnostic. City-camera titles get that suffix plus, on collision, a
+  `#<last 4 of the camera number>` tag (`disambiguate_titles`), because Ufanet
+  names most of them "Камера 1".
 - **`parse_house_area`** strips `"г. <city>, "` prefix and `", п.<n>"` porch suffix from Ufanet addresses, yielding a `"Street, House"` HA area name. Areas are force-assigned post-setup in `_assign_areas_by_address` because `suggested_area` only fires on a device's first registration.
 - **The legacy `cams_server/api/v0/cameras/my/` endpoint** (no longer used on the read path) strictly validates its `fields` array — `"house"` returned HTTP 400, which is why addresses are parsed locally. If you ever re-add that endpoint, every new field needs verifying in isolation before shipping.
 - **Hard-to-reverse / setup-time decisions live in `__init__.py`'s docstrings/comments**; trust those over the wider HA docs when they conflict.

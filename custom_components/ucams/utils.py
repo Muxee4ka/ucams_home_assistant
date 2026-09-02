@@ -11,6 +11,15 @@ CONF_DOM_URL = "dom_link"
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_CAMERA_IMAGE_REFRESH_INTERVAL = "camera_image_refresh_interval"
+CONF_PUBLIC_CAMERAS = "public_cameras"
+CONF_PUBLIC_CAMERAS_QUERY = "public_cameras_query"
+CONF_PUBLIC_CAMERAS_RADIUS = "public_cameras_radius"
+DEFAULT_PUBLIC_CAMERAS_RADIUS = 5.0
+# Ufanet publishes ~2000 city cameras across every town it serves. Without a
+# query or a radius the whole list would land in HA, so cap what we create and
+# tell the user to narrow the filters.
+MAX_PUBLIC_CAMERAS = 100
+PUBLIC_CAMERA_MODEL = "Городская камера"
 DOMAIN = "ucams"
 TOKEN_REFRESH_BUFFER = 300
 TIMEOUT = 30
@@ -49,6 +58,7 @@ def transliterate_ru(value: str) -> str:
 
 _AREA_CITY_PREFIX_RE = re.compile(r"^\s*г\.\s*[^,]+,\s*", re.IGNORECASE)
 _AREA_PORCH_SUFFIX_RE = re.compile(r"\s*,\s*п\.\s*\d+\s*$", re.IGNORECASE)
+_PORCH_PART_RE = re.compile(r"^п\.?\s*\d+$", re.IGNORECASE)
 
 
 def parse_house_area(address: str | None) -> str | None:
@@ -63,6 +73,35 @@ def parse_house_area(address: str | None) -> str | None:
     cleaned = _AREA_PORCH_SUFFIX_RE.sub("", cleaned)
     cleaned = cleaned.strip(" ,")
     return cleaned or None
+
+
+def all_cameras_info(entry_data: dict) -> list[dict]:
+    """Own cameras followed by city ones, for the platforms that show both.
+
+    Only camera/image/geo_location call this. Archive buttons, archive-link
+    sensors and area assignment stay on `cameras_info` alone, because city
+    cameras have neither an archive nor an address worth making an area of.
+    """
+    own = entry_data.get("cameras_info") or {}
+    public = entry_data.get("public_cameras_info") or {}
+    return [*own.values(), *public.values()]
+
+
+def short_address(address: str | None) -> str | None:
+    """Reduce an address to its trailing "street, house" pair.
+
+    Unlike `parse_house_area` this makes no assumption about the city prefix
+    format (public cameras come back as "г Нижний Новгород, …" — no dot after
+    the "г" — while contract cameras historically used "г. …"). Used for
+    display names only, never for area names.
+    """
+    if not address:
+        return None
+    parts = [p.strip() for p in address.split(",") if p.strip()]
+    parts = [p for p in parts if not _PORCH_PART_RE.match(p)]
+    if not parts:
+        return None
+    return ", ".join(parts[-2:])
 
 
 def build_object_id(device_name: str, suffix: str | int | None) -> str:
