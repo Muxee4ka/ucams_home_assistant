@@ -15,7 +15,10 @@
                     "dom_link": "Ufanet dom link",
                     "password": "Password",
                     "username": "Username",
-                    "camera_image_refresh_interval": "Camera refresh interval (seconds)"
+                    "camera_image_refresh_interval": "Camera refresh interval (seconds)",
+                    "public_cameras": "Add city cameras",
+                    "public_cameras_query": "City cameras: search text (street or camera name)",
+                    "public_cameras_radius": "City cameras: radius from home, km (0 — no radius filter)"
                 }
             }
         }
@@ -50,6 +53,22 @@
                 "duration": {
                     "name": "Duration",
                     "description": "Archive duration in seconds."
+                }
+            }
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "data": {
+                    "link": "Ucams link",
+                    "dom_link": "Ufanet dom link",
+                    "password": "Password",
+                    "username": "Username",
+                    "camera_image_refresh_interval": "Camera refresh interval (seconds)",
+                    "public_cameras": "Add city cameras",
+                    "public_cameras_query": "City cameras: search text (street or camera name)",
+                    "public_cameras_radius": "City cameras: radius from home, km (0 — no radius filter)"
                 }
             }
         }

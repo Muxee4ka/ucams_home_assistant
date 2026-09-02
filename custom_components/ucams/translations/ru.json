@@ -15,7 +15,10 @@
                     "dom_link": "Ссылка Ufanet dom",
                     "password": "Пароль",
                     "username": "Логин (номер договора)",
-                    "camera_image_refresh_interval": "Интервал обновления превью (сек)"
+                    "camera_image_refresh_interval": "Интервал обновления превью (сек)",
+                    "public_cameras": "Добавить городские камеры",
+                    "public_cameras_query": "Городские камеры: поиск (улица или название камеры)",
+                    "public_cameras_radius": "Городские камеры: радиус от дома, км (0 — без фильтра)"
                 }
             }
         }
@@ -50,6 +53,22 @@
                 "duration": {
                     "name": "Длительность",
                     "description": "Длительность архива в секундах."
+                }
+            }
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "data": {
+                    "link": "Ссылка Ucams",
+                    "dom_link": "Ссылка Ufanet dom",
+                    "password": "Пароль",
+                    "username": "Логин (номер договора)",
+                    "camera_image_refresh_interval": "Интервал обновления превью (сек)",
+                    "public_cameras": "Добавить городские камеры",
+                    "public_cameras_query": "Городские камеры: поиск (улица или название камеры)",
+                    "public_cameras_radius": "Городские камеры: радиус от дома, км (0 — без фильтра)"
                 }
             }
         }

@@ -3,7 +3,7 @@
 import base64
 import json
 
-from custom_components.ucams.utils import decode_token
+from custom_components.ucams.utils import all_cameras_info, decode_token, short_address
 
 # Header { "typ": "JWT", "alg": "HS256" }, payload { "exp": 1850000000, "u": "x" }
 JWT_TOKEN = (
@@ -40,3 +40,34 @@ def test_decode_token_no_longer_raises():
     # b64-decodable but not JSON
     raw = base64.urlsafe_b64encode(b"plain text not json").rstrip(b"=").decode()
     assert decode_token(f"{raw}.x.y") == {}
+
+
+def test_short_address_keeps_street_and_house():
+    """City prefixes come with and without the dot; both must fall away."""
+    assert (
+        short_address("г Нижний Новгород, ул Максима Горького, д 262")
+        == "ул Максима Горького, д 262"
+    )
+    assert short_address("г. Уфа, ул Ленина, д 1, п.2") == "ул Ленина, д 1"
+    assert short_address("ул Медицинская, д 15 к 3") == "ул Медицинская, д 15 к 3"
+
+
+def test_short_address_handles_empty_input():
+    assert short_address(None) is None
+    assert short_address("") is None
+    assert short_address(" , ") is None
+
+
+def test_all_cameras_info_appends_public_cameras():
+    """Platforms showing both sources read own cameras first, then city ones."""
+    entry_data = {
+        "cameras_info": {"a": {"id": "a"}},
+        "public_cameras_info": {"b": {"id": "b"}},
+    }
+    assert [cam["id"] for cam in all_cameras_info(entry_data)] == ["a", "b"]
+
+
+def test_all_cameras_info_without_public_bag():
+    """Entries created before city cameras existed have no public bag at all."""
+    assert all_cameras_info({"cameras_info": {"a": {"id": "a"}}}) == [{"id": "a"}]
+    assert all_cameras_info({}) == []

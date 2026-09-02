@@ -8,7 +8,7 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID, Platform
 from homeassistant.core import HomeAssistant, ServiceResponse, SupportsResponse
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
@@ -21,7 +21,11 @@ from .utils import (
     CONF_DOM_URL,
     CONF_NAME,
     CONF_PASSWORD,
+    CONF_PUBLIC_CAMERAS,
+    CONF_PUBLIC_CAMERAS_QUERY,
+    CONF_PUBLIC_CAMERAS_RADIUS,
     CONF_USERNAME,
+    DEFAULT_PUBLIC_CAMERAS_RADIUS,
     DOMAIN,
     parse_house_area,
 )
@@ -46,6 +50,15 @@ OPTIONS_SCHEMA = {
     vol.Required(CONF_USERNAME, msg="Username"): str,
     vol.Required(CONF_PASSWORD, msg="Password"): str,
     vol.Required(CONF_CAMERA_IMAGE_REFRESH_INTERVAL, msg="Refresh interval", default=600): int,
+    # City cameras are opt-in: they add entities that have nothing to do with
+    # the user's own contract, and discovering them costs a cams_server login.
+    vol.Optional(CONF_PUBLIC_CAMERAS, msg="City cameras", default=False): bool,
+    vol.Optional(CONF_PUBLIC_CAMERAS_QUERY, msg="City cameras search", default=""): str,
+    vol.Optional(
+        CONF_PUBLIC_CAMERAS_RADIUS,
+        msg="City cameras radius (km)",
+        default=DEFAULT_PUBLIC_CAMERAS_RADIUS,
+    ): vol.Coerce(float),
 }
 
 ARCHIVE_SCHEMA = vol.Schema(
@@ -78,15 +91,59 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     # let those propagate so HA shows a real error to the user instead of a
     # silent setup failure.
     cameras_info = await cameras_api.get_cameras_info()
+    public_cameras_info = await _async_load_public_cameras(hass, config_entry, cameras_api)
     hass.data[config_entry.entry_id] = {
         "cameras_api": cameras_api,
         "dom_api": ufanet_api,
         "cameras_info": cameras_info,
+        # City cameras stay in their own bag: only camera/image/geo_location
+        # read it, so archive buttons and area assignment can't pick them up.
+        "public_cameras_info": public_cameras_info,
     }
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
     _assign_areas_by_address(hass, config_entry, cameras_info)
     _async_register_services(hass)
+    # Options decide which entities exist (city-camera filters especially), so
+    # they only take effect on a reload — do it for the user.
+    config_entry.async_on_unload(config_entry.add_update_listener(_async_options_updated))
     return True
+
+
+async def _async_options_updated(hass: HomeAssistant, config_entry: ConfigEntry) -> None:
+    await hass.config_entries.async_reload(config_entry.entry_id)
+
+
+async def _async_load_public_cameras(
+    hass: HomeAssistant, config_entry: ConfigEntry, cameras_api: UcamsApi
+) -> dict:
+    """Discover Ufanet's «городские камеры», if the entry opted in.
+
+    Deliberately non-fatal: city cameras are a bonus on top of the user's own
+    ones, so a cams_server hiccup must not take the whole entry down with it.
+    """
+    options = config_entry.options
+    if not options.get(CONF_PUBLIC_CAMERAS, False):
+        return {}
+
+    query = (options.get(CONF_PUBLIC_CAMERAS_QUERY) or "").strip()
+    radius_km = float(options.get(CONF_PUBLIC_CAMERAS_RADIUS) or 0)
+    home = (hass.config.latitude, hass.config.longitude)
+    if not query and not radius_km:
+        _LOGGER.warning(
+            "City cameras are on with no search text and no radius — the whole "
+            "public list will be considered and truncated. Set one of them."
+        )
+
+    try:
+        return await cameras_api.get_public_cameras_info(
+            query=query or None, radius_km=radius_km or None, home=home
+        )
+    except ConfigEntryAuthFailed:
+        # Credentials going bad is a real failure — HA must start reauth.
+        raise
+    except Exception as err:
+        _LOGGER.warning("Failed to load public city cameras: %s", err)
+        return {}
 
 
 def _assign_areas_by_address(
