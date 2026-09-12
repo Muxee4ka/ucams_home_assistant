@@ -27,6 +27,7 @@ from .utils import (
     CONF_USERNAME,
     DEFAULT_PUBLIC_CAMERAS_RADIUS,
     DOMAIN,
+    STATIC_URL_BASE,
     parse_house_area,
 )
 
@@ -39,7 +40,10 @@ PLATFORMS: list[str] = [
     Platform.GEO_LOCATION,
 ]
 
-NO_SNAPSHOT_PATH = Path(__file__).parent / "assets" / "no_snapshot.png"
+ASSETS_PATH = Path(__file__).parent / "assets"
+NO_SNAPSHOT_PATH = ASSETS_PATH / "no_snapshot.png"
+# hass.data key guarding the one-per-HA-run static route registration.
+STATIC_ASSETS_REGISTERED = f"{DOMAIN}_static_assets"
 
 DATA_SCHEMA = {
     vol.Required(CONF_NAME, default="Ucams"): str,
@@ -100,6 +104,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         # read it, so archive buttons and area assignment can't pick them up.
         "public_cameras_info": public_cameras_info,
     }
+    await _async_register_static_assets(hass)
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
     _assign_areas_by_address(hass, config_entry, cameras_info)
     _async_register_services(hass)
@@ -181,6 +186,30 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
             hass.services.async_remove(DOMAIN, "snapshot")
             hass.services.async_remove(DOMAIN, "get_archive")
     return res
+
+
+async def _async_register_static_assets(hass: HomeAssistant) -> None:
+    """Serve assets/ at /ucams_static so entities can link to the map markers.
+
+    The HA map draws the first three letters of an entity's name unless the
+    entity exposes an `entity_picture`; geo_location entities point theirs at
+    the camera icon served here. Routes can't be unregistered, so this runs
+    once per HA run no matter how many entries are set up.
+    """
+    if hass.data.get(STATIC_ASSETS_REGISTERED):
+        return
+    hass.data[STATIC_ASSETS_REGISTERED] = True
+    try:
+        # HA 2024.7+. The import is local because StaticPathConfig doesn't exist
+        # on the 2024.4 minimum hacs.json declares, where the sync call is the
+        # only option (it was dropped again in later cores).
+        from homeassistant.components.http import StaticPathConfig
+    except ImportError:
+        hass.http.register_static_path(STATIC_URL_BASE, str(ASSETS_PATH), cache_headers=True)
+    else:
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig(STATIC_URL_BASE, str(ASSETS_PATH), cache_headers=True)]
+        )
 
 
 def _ucams_entries(hass: HomeAssistant) -> list[dict]:

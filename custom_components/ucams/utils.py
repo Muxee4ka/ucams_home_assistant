@@ -20,6 +20,12 @@ DEFAULT_PUBLIC_CAMERAS_RADIUS = 5.0
 # tell the user to narrow the filters.
 MAX_PUBLIC_CAMERAS = 100
 PUBLIC_CAMERA_MODEL = "Городская камера"
+# Map markers. The HA map draws the first three letters of the entity name
+# unless the entity exposes an `entity_picture`, so geo_location entities point
+# at these icons, served out of assets/ by `_async_register_static_assets`.
+STATIC_URL_BASE = "/ucams_static"
+MARKER_ICON_URL = f"{STATIC_URL_BASE}/camera_marker.svg"
+PUBLIC_MARKER_ICON_URL = f"{STATIC_URL_BASE}/camera_marker_public.svg"
 DOMAIN = "ucams"
 TOKEN_REFRESH_BUFFER = 300
 TIMEOUT = 30

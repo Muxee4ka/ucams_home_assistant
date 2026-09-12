@@ -3,7 +3,7 @@
     "name": "Ucams",
     "codeowners": ["@Muxee4ka"],
     "config_flow": true,
-    "dependencies": [],
+    "dependencies": ["http"],
     "documentation": "https://github.com/Muxee4ka/ucams_home_assistant",
     "integration_type": "hub",
     "iot_class": "cloud_polling",

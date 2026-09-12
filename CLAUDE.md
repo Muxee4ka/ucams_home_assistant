@@ -99,6 +99,16 @@ Services (`ucams.snapshot`, `ucams.get_archive`) are registered once globally an
   agnostic. City-camera titles get that suffix plus, on collision, a
   `#<last 4 of the camera number>` tag (`disambiguate_titles`), because Ufanet
   names most of them "Камера 1".
+- **Map markers come from `entity_picture`, not `icon`.** The HA map draws the
+  first three letters of the entity name unless the entity exposes an
+  `entity_picture` (`ha-entity-marker` only falls back to `ha-state-icon` for
+  map-card entities configured with `label_mode: icon`, which geo_location
+  sources never are). So `assets/` is served at `/ucams_static` by
+  `_async_register_static_assets` (once per HA run — static routes can't be
+  unregistered) and `geo_location` points `entity_picture` at
+  `camera_marker.svg` / `camera_marker_public.svg`. `StaticPathConfig` is
+  imported inside that function: it doesn't exist on the HA 2024.4.4 minimum
+  `hacs.json` declares, which is also what the dev venv pins.
 - **`parse_house_area`** strips `"г. <city>, "` prefix and `", п.<n>"` porch suffix from Ufanet addresses, yielding a `"Street, House"` HA area name. Areas are force-assigned post-setup in `_assign_areas_by_address` because `suggested_area` only fires on a device's first registration.
 - **The legacy `cams_server/api/v0/cameras/my/` endpoint** (no longer used on the read path) strictly validates its `fields` array — `"house"` returned HTTP 400, which is why addresses are parsed locally. If you ever re-add that endpoint, every new field needs verifying in isolation before shipping.
 - **Hard-to-reverse / setup-time decisions live in `__init__.py`'s docstrings/comments**; trust those over the wider HA docs when they conflict.

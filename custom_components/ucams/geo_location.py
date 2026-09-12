@@ -8,7 +8,14 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util.location import distance
 
 from .ucams import UcamsApi
-from .utils import DOMAIN, PUBLIC_CAMERA_MODEL, all_cameras_info, build_object_id
+from .utils import (
+    DOMAIN,
+    MARKER_ICON_URL,
+    PUBLIC_CAMERA_MODEL,
+    PUBLIC_MARKER_ICON_URL,
+    all_cameras_info,
+    build_object_id,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -50,6 +57,10 @@ class UcamsLocation(GeolocationEvent):
 
         self._attr_unique_id = f"geo-{self.camera_id}"
         self._attr_name = self.display_name
+        # Without a picture the map marker is the first three letters of the
+        # name; city cameras get a muted variant so they read apart from the
+        # contract ones at a glance.
+        self._attr_entity_picture = PUBLIC_MARKER_ICON_URL if self._is_public else MARKER_ICON_URL
         if self._is_public:
             # City-camera names are Russian, and this platform otherwise derives
             # the entity_id from the name. Pin it to the same transliterated slug
