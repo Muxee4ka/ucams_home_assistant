@@ -33,11 +33,11 @@ HEADERS = {
     "Content-Type": "application/json",
 }
 
-# Live TTL we ask cams_server for on public cameras. 86400 is the server-side
-# maximum — larger values are rejected outright, the default is 3600.
-PUBLIC_TOKEN_L_TTL = 86400
+# Live TTL we ask cams_server for. 86400 is the server-side maximum — larger
+# values are rejected outright, the default is 3600.
+TOKEN_L_TTL = 86400
 PUBLIC_PAGE_SIZE = 200
-PUBLIC_CAMERA_FIELDS = [
+CAMERA_FIELDS = [
     "number",
     "title",
     "address",
@@ -46,6 +46,10 @@ PUBLIC_CAMERA_FIELDS = [
     "server",
     "token_l",
 ]
+# How long to stop re-asking upstream after a camera failed to produce a
+# usable live token. Without it every image refresh and every stream retry
+# would re-pull the whole camera list for a camera that is simply broken.
+TOKEN_RETRY_COOLDOWN = 300
 
 
 def _public_camera_title(title: str | None, address: str | None) -> str:
@@ -133,6 +137,8 @@ class UcamsApi:
         self.token: str | None = None
         self.token_expiration: int = 0
         self._cams_session: ClientSession | None = None
+        # camera_id -> unix time before which we won't chase a live token again
+        self._token_retry_after: dict[str, float] = {}
 
     async def _ensure_cams_session(self) -> ClientSession:
         """Lazily create + authenticate a session against cams_server.
@@ -192,7 +198,11 @@ class UcamsApi:
         key) — hence `servers` being passed in rather than looked up here.
         """
         cam_id = cam["number"]
-        token_l = cam["token_l"]
+        # `.get`, not `[...]`: /api/v1/cctv sometimes hands back a camera row
+        # with `token_l: null`. The entry is still built so the entity exists
+        # and `get_camera_url` can mint a token for it later — dropping it here
+        # would make the camera silently vanish until the next HA restart.
+        token_l = cam.get("token_l")
         domain = servers.get("domain")
         screenshot_domain = servers.get("screenshot_domain")
 
@@ -237,6 +247,15 @@ class UcamsApi:
             if entry:
                 self.cameras[entry["id"]] = entry
 
+        tokenless = [cam_id for cam_id, cam in self.cameras.items() if not cam.get("token_l")]
+        if tokenless:
+            _LOGGER.warning(
+                "dom /api/v1/cctv returned no live token for %s of %s cameras (%s); "
+                "they will be minted from cams_server on demand",
+                len(tokenless),
+                len(self.cameras),
+                ", ".join(tokenless),
+            )
         return self.cameras
 
     async def get_public_cameras_info(
@@ -277,11 +296,11 @@ class UcamsApi:
         page = 1
         while True:
             payload = {
-                "fields": PUBLIC_CAMERA_FIELDS,
+                "fields": CAMERA_FIELDS,
                 "public_cameras": True,
                 "user_cameras": False,
                 "order_by": "addr_asc",
-                "token_l_ttl": PUBLIC_TOKEN_L_TTL,
+                "token_l_ttl": TOKEN_L_TTL,
                 "page": page,
                 "page_size": PUBLIC_PAGE_SIZE,
             }
@@ -305,8 +324,8 @@ class UcamsApi:
             return
         session = await self._ensure_cams_session()
         payload = {
-            "fields": PUBLIC_CAMERA_FIELDS,
-            "token_l_ttl": PUBLIC_TOKEN_L_TTL,
+            "fields": CAMERA_FIELDS,
+            "token_l_ttl": TOKEN_L_TTL,
             "numbers": list(self.public_cameras),
             "page": 1,
             "page_size": len(self.public_cameras),
@@ -317,6 +336,37 @@ class UcamsApi:
             if entry:
                 self.public_cameras[entry["id"]] = entry
         disambiguate_titles(self.public_cameras)
+
+    async def _mint_contract_tokens(self, camera_ids: list[str]) -> None:
+        """Mint live tokens for contract cameras straight from cams_server.
+
+        Fallback for when dom `/api/v1/cctv` hands a camera back without a
+        usable `token_l` — `/api/v0/cameras/this/` issues one for any camera
+        the account can see, and also reports the streaming host to use, which
+        is not always the one `/api/v1/cctv` named.
+
+        The dom-side title and address are kept: they are what the entity_id
+        and the area assignment were built from, and a rename here would move
+        entities out from under the user's automations.
+        """
+        session = await self._ensure_cams_session()
+        payload = {
+            "fields": CAMERA_FIELDS,
+            "token_l_ttl": TOKEN_L_TTL,
+            "numbers": camera_ids,
+            "page": 1,
+            "page_size": len(camera_ids),
+        }
+        data = await self._post_cams(session, "this", payload)
+        for cam in data.get("results") or []:
+            existing = self.cameras.get(cam.get("number")) or {}
+            merged = {**cam}
+            for key in ("title", "address"):
+                if existing.get(key):
+                    merged[key] = existing[key]
+            entry = self._build_camera_entry(merged, cam.get("server") or {})
+            if entry:
+                self.cameras[entry["id"]] = entry
 
     async def _post_cams(self, session: ClientSession, endpoint: str, payload: dict) -> dict:
         """POST to cams_server, re-authenticating once on a 401."""
@@ -366,27 +416,80 @@ class UcamsApi:
         else:
             await self.get_cameras_info()
 
+    def _token_is_fresh(self, token: str | None) -> bool:
+        """True when `token` still has more than the refresh buffer left on it."""
+        exp = self._decode_token_exp(token)
+        return bool(exp) and (exp - int(time())) >= TOKEN_REFRESH_BUFFER
+
+    async def _renew_live_token(self, camera_id: str) -> dict | None:
+        """Chase a usable `token_l` for one camera, or give up with a reason.
+
+        Called whenever the cached token is missing, unparseable or about to
+        expire — **including when it is missing**. That last case used to fall
+        through without re-fetching anything, so a camera that came back from
+        `/api/v1/cctv` with `token_l: null` once stayed dead for the life of
+        the config entry and only a reload (e.g. editing the dom URL and
+        changing it back) brought it round.
+        """
+        now = time()
+        retry_after = self._token_retry_after.get(camera_id, 0)
+        if now < retry_after:
+            _LOGGER.debug(
+                "Camera %s has no usable live token; not retrying for another %s sec",
+                camera_id,
+                int(retry_after - now),
+            )
+            return None
+
+        await self._refresh_camera_source(camera_id)
+        camera_info = await self.get_camera_info(camera_id)
+        if camera_info and self._token_is_fresh(camera_info.get("token_l")):
+            self._token_retry_after.pop(camera_id, None)
+            return camera_info
+
+        # dom had nothing usable. cams_server mints live tokens by camera
+        # number for anything the account can see, contract cameras included.
+        if camera_id not in self.public_cameras:
+            try:
+                await self._mint_contract_tokens([camera_id])
+            except Exception as err:  # never break a stream request over this
+                _LOGGER.debug("cams_server token mint failed for %s: %r", camera_id, err)
+            camera_info = await self.get_camera_info(camera_id)
+            if camera_info and self._token_is_fresh(camera_info.get("token_l")):
+                _LOGGER.info("Live token for camera %s recovered via cams_server", camera_id)
+                self._token_retry_after.pop(camera_id, None)
+                return camera_info
+
+        self._token_retry_after[camera_id] = now + TOKEN_RETRY_COOLDOWN
+        if camera_info is None:
+            _LOGGER.error("Camera %s disappeared from the account.", camera_id)
+        else:
+            token_exp = self._decode_token_exp(camera_info.get("token_l"))
+            if not camera_info.get("token_l"):
+                reason = "upstream returned no live token"
+            elif not token_exp:
+                reason = "live token could not be decoded"
+            else:
+                reason = f"live token expires in {token_exp - int(now)} sec"
+            _LOGGER.error(
+                "No usable live token for camera %s (%s). Streams and screenshots for "
+                "it will stay unavailable; retrying in %s sec.",
+                camera_id,
+                reason,
+                TOKEN_RETRY_COOLDOWN,
+            )
+        return None
+
     async def get_camera_url(self, camera_id: str, url_type: str) -> str | None:
         camera_info = await self.get_camera_info(camera_id)
         if not camera_info:
             _LOGGER.error("Camera %s not found.", camera_id)
             return None
 
-        now = int(time())
-        token_exp = self._decode_token_exp(camera_info.get("token_l"))
-        if token_exp and (token_exp - now) < TOKEN_REFRESH_BUFFER:
-            _LOGGER.warning(
-                "Camera token %s is about to expire (%s sec), refreshing cameras list.",
-                camera_id,
-                token_exp - now,
-            )
-            await self._refresh_camera_source(camera_id)
-            camera_info = await self.get_camera_info(camera_id)
-
-        token_exp = self._decode_token_exp(camera_info.get("token_l"))
-        if not token_exp or (token_exp - now) < TOKEN_REFRESH_BUFFER:
-            _LOGGER.error("Failed to update token for camera %s.", camera_id)
-            return None
+        if not self._token_is_fresh(camera_info.get("token_l")):
+            camera_info = await self._renew_live_token(camera_id)
+            if camera_info is None:
+                return None
 
         url_key = f"url_{url_type}"
         url = camera_info.get(url_key)
@@ -396,12 +499,16 @@ class UcamsApi:
             _LOGGER.debug("URL (%s) for camera %s: %s", url_type, camera_id, url)
         return url
 
-    def _decode_token_exp(self, token: str) -> int | None:
+    def _decode_token_exp(self, token: str | None) -> int | None:
+        """Expiry of a live token, or None when there isn't one to read.
+
+        `decode_token` already returns `{}` for a missing or unparseable
+        token, so a None here means "no expiry known", never an exception.
+        """
         try:
-            decoded = decode_token(token)
-            return int(decoded.get("exp", 0))
-        except Exception as e:
-            _LOGGER.error("Token decoding error: %s", e)
+            return int(decode_token(token).get("exp", 0)) or None
+        except (TypeError, ValueError) as err:
+            _LOGGER.debug("Token decoding error: %s", err)
             return None
 
     async def get_camera_stream_ws_url(self, camera_id: str) -> str | None:

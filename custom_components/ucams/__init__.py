@@ -162,13 +162,21 @@ def _assign_areas_by_address(
     """
     area_reg = ar.async_get(hass)
     dev_reg = dr.async_get(hass)
+    # Index this entry's devices by identifier rather than calling
+    # `async_get_device(identifiers=...)` per camera: that signature is
+    # deprecated (HA 2027.8 removes it) and its replacements don't exist on
+    # the 2024.4.4 minimum `hacs.json` declares. One pass over our own devices
+    # works on every version and is cheaper than N registry lookups anyway.
+    devices = {
+        identifier: device
+        for device in dr.async_entries_for_config_entry(dev_reg, config_entry.entry_id)
+        for identifier in device.identifiers
+    }
     for camera_id, cam in cameras_info.items():
         area_name = parse_house_area(cam.get("address"))
         if not area_name:
             continue
-        device = dev_reg.async_get_device(
-            identifiers={(DOMAIN, f"{config_entry.entry_id}_{camera_id}")}
-        )
+        device = devices.get((DOMAIN, f"{config_entry.entry_id}_{camera_id}"))
         if device is None:
             continue
         area = area_reg.async_get_area_by_name(area_name) or area_reg.async_get_or_create(area_name)

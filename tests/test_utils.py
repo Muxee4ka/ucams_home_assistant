@@ -71,3 +71,8 @@ def test_all_cameras_info_without_public_bag():
     """Entries created before city cameras existed have no public bag at all."""
     assert all_cameras_info({"cameras_info": {"a": {"id": "a"}}}) == [{"id": "a"}]
     assert all_cameras_info({}) == []
+
+
+def test_decode_token_handles_missing_token():
+    """`/api/v1/cctv` can return `token_l: null`; that must not raise."""
+    assert decode_token(None) == {}
