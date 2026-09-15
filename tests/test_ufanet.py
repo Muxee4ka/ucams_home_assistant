@@ -184,64 +184,63 @@ APPLY_URL = f"{BASE}/api/v4/phone_auth/call/apply/"
 
 
 @pytest.mark.asyncio
-async def test_phone_auth_init_returns_call_handle():
-    import aiohttp
-
+async def test_phone_auth_init_returns_call_handle(dom_api):
+    # Reuse dom_api's session: a bare aiohttp.ClientSession leaves a daemon
+    # shutdown thread that pytest-homeassistant-custom-component flags on 3.12
+    # (same reasoning as the ucams tests). The fixture closes it in-loop.
     from custom_components.ucams.ufanet import PhoneAuthError, phone_auth_init
 
-    async with aiohttp.ClientSession() as s:
-        with aioresponses() as m:
-            m.post(
-                INIT_URL,
-                status=201,
-                payload={
-                    "status": "created",
-                    "data": {
-                        "phone_to_call": "+78007005254",
-                        "request_id": "abc123",
-                        "timeout": 180,
-                    },
+    s = dom_api.session
+    with aioresponses() as m:
+        m.post(
+            INIT_URL,
+            status=201,
+            payload={
+                "status": "created",
+                "data": {
+                    "phone_to_call": "+78007005254",
+                    "request_id": "abc123",
+                    "timeout": 180,
                 },
-            )
-            data = await phone_auth_init(s, BASE, "+79990001122")
-        assert data["request_id"] == "abc123"
-        assert data["phone_to_call"] == "+78007005254"
+            },
+        )
+        data = await phone_auth_init(s, BASE, "+79990001122")
+    assert data["request_id"] == "abc123"
+    assert data["phone_to_call"] == "+78007005254"
 
-        with aioresponses() as m:
-            m.post(INIT_URL, status=201, payload={"status": "created", "data": {}})
-            with pytest.raises(PhoneAuthError):
-                await phone_auth_init(s, BASE, "+79990001122")
+    with aioresponses() as m:
+        m.post(INIT_URL, status=201, payload={"status": "created", "data": {}})
+        with pytest.raises(PhoneAuthError):
+            await phone_auth_init(s, BASE, "+79990001122")
 
 
 @pytest.mark.asyncio
-async def test_phone_auth_contact_list_and_apply():
-    import aiohttp
-
+async def test_phone_auth_contact_list_and_apply(dom_api):
     from custom_components.ucams.ufanet import phone_auth_apply, phone_auth_contact_list
 
-    async with aiohttp.ClientSession() as s:
-        with aioresponses() as m:
-            m.post(CONTACT_URL, payload={"status": "ok", "data": {"contracts": []}})
-            assert await phone_auth_contact_list(s, BASE, "rid") == []
+    s = dom_api.session
+    with aioresponses() as m:
+        m.post(CONTACT_URL, payload={"status": "ok", "data": {"contracts": []}})
+        assert await phone_auth_contact_list(s, BASE, "rid") == []
 
-        with aioresponses() as m:
-            m.post(
-                CONTACT_URL,
-                payload={
-                    "status": "ok",
-                    "data": {"contracts": [{"id": 530054, "title": "52046469"}]},
-                },
-            )
-            contracts = await phone_auth_contact_list(s, BASE, "rid")
-        assert contracts[0]["id"] == 530054
+    with aioresponses() as m:
+        m.post(
+            CONTACT_URL,
+            payload={
+                "status": "ok",
+                "data": {"contracts": [{"id": 530054, "title": "52046469"}]},
+            },
+        )
+        contracts = await phone_auth_contact_list(s, BASE, "rid")
+    assert contracts[0]["id"] == 530054
 
-        with aioresponses() as m:
-            m.post(
-                APPLY_URL,
-                payload={"status": "ok", "data": {"access": FRESH_JWT, "refresh": REFRESH_JWT}},
-            )
-            tokens = await phone_auth_apply(s, BASE, "rid", 530054)
-        assert tokens["access"] == FRESH_JWT and tokens["refresh"] == REFRESH_JWT
+    with aioresponses() as m:
+        m.post(
+            APPLY_URL,
+            payload={"status": "ok", "data": {"access": FRESH_JWT, "refresh": REFRESH_JWT}},
+        )
+        tokens = await phone_auth_apply(s, BASE, "rid", 530054)
+    assert tokens["access"] == FRESH_JWT and tokens["refresh"] == REFRESH_JWT
 
 
 def _phone_entry(access, refresh):
