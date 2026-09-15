@@ -11,6 +11,20 @@ CONF_DOM_URL = "dom_link"
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_CAMERA_IMAGE_REFRESH_INTERVAL = "camera_image_refresh_interval"
+# Auth method + phone-call ("flash call") login. See memory phone-auth-flow /
+# issue #16: accounts connected through a management company have no
+# contract/password (has_local_password:false) and can only sign in by phone.
+# The call flow yields the same dom JWT access+refresh pair as the password
+# login, so only the initial handshake differs.
+CONF_AUTH_METHOD = "auth_method"
+CONF_PHONE = "phone"
+CONF_CONTRACT_ID = "contract_id"
+CONF_ACCESS_TOKEN = "access_token"
+CONF_REFRESH_TOKEN = "refresh_token"
+AUTH_PASSWORD = "password"
+AUTH_PHONE = "phone"
+PHONE_APPLICATION_ID = "ru.ufanet.smarthome"
+PHONE_COUNTRY_ID = 1
 CONF_PUBLIC_CAMERAS = "public_cameras"
 CONF_PUBLIC_CAMERAS_QUERY = "public_cameras_query"
 CONF_PUBLIC_CAMERAS_RADIUS = "public_cameras_radius"

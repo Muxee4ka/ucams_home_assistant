@@ -21,6 +21,7 @@ from .utils import (
     CONF_DOM_URL,
     CONF_NAME,
     CONF_PASSWORD,
+    CONF_PHONE,
     CONF_PUBLIC_CAMERAS,
     CONF_PUBLIC_CAMERAS_QUERY,
     CONF_PUBLIC_CAMERAS_RADIUS,
@@ -49,13 +50,14 @@ DATA_SCHEMA = {
     vol.Required(CONF_NAME, default="Ucams"): str,
 }
 
-OPTIONS_SCHEMA = {
+_DOM_URL_SCHEMA = {
     vol.Required(CONF_DOM_URL, msg="Dom url", default="https://dom.ufanet.ru"): str,
-    vol.Required(CONF_USERNAME, msg="Username"): str,
-    vol.Required(CONF_PASSWORD, msg="Password"): str,
+}
+# Everything that isn't credentials: shared by the password and phone flows so
+# the two never drift. City cameras are opt-in — they add entities unrelated to
+# the user's own contract and cost a cams_server login to discover.
+_TUNING_SCHEMA = {
     vol.Required(CONF_CAMERA_IMAGE_REFRESH_INTERVAL, msg="Refresh interval", default=600): int,
-    # City cameras are opt-in: they add entities that have nothing to do with
-    # the user's own contract, and discovering them costs a cams_server login.
     vol.Optional(CONF_PUBLIC_CAMERAS, msg="City cameras", default=False): bool,
     vol.Optional(CONF_PUBLIC_CAMERAS_QUERY, msg="City cameras search", default=""): str,
     vol.Optional(
@@ -63,6 +65,24 @@ OPTIONS_SCHEMA = {
         msg="City cameras radius (km)",
         default=DEFAULT_PUBLIC_CAMERAS_RADIUS,
     ): vol.Coerce(float),
+}
+
+# Password flow (unchanged): dom url + contract/password + tuning.
+OPTIONS_SCHEMA = {
+    **_DOM_URL_SCHEMA,
+    vol.Required(CONF_USERNAME, msg="Username"): str,
+    vol.Required(CONF_PASSWORD, msg="Password"): str,
+    **_TUNING_SCHEMA,
+}
+
+# Phone (call-auth) accounts have no credentials to edit.
+PHONE_OPTIONS_SCHEMA = {**_DOM_URL_SCHEMA, **_TUNING_SCHEMA}
+# First step of the phone flow: name + where to reach dom + the phone to call from.
+PHONE_STEP_SCHEMA = {
+    **DATA_SCHEMA,
+    **_DOM_URL_SCHEMA,
+    vol.Required(CONF_PHONE, msg="Phone (+7…)"): str,
+    **_TUNING_SCHEMA,
 }
 
 ARCHIVE_SCHEMA = vol.Schema(

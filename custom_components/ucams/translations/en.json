@@ -1,17 +1,28 @@
 {
     "config": {
         "abort": {
-            "already_configured": "Already configured"
+            "already_configured": "Already configured",
+            "phone_apply_failed": "Could not obtain tokens after the call. Please start over."
         },
         "error": {
             "cannot_connect": "Cannot connect",
             "invalid_auth": "Invalid authentication",
-            "unknown": "Unknown error"
+            "unknown": "Unknown error",
+            "phone_init_failed": "Could not start phone authentication. Check the number and try again.",
+            "phone_call_failed": "Error while confirming the call. Try again.",
+            "phone_call_not_detected": "The call wasn't detected yet. Call the number, then continue."
         },
         "step": {
             "user": {
+                "title": "Ucams: sign-in method",
+                "menu_options": {
+                    "password": "Contract number + password",
+                    "phone": "By phone call (no password)"
+                }
+            },
+            "password": {
                 "data": {
-                    "link": "Ucams link",
+                    "name": "Name",
                     "dom_link": "Ufanet dom link",
                     "password": "Password",
                     "username": "Username",
@@ -19,6 +30,29 @@
                     "public_cameras": "Add city cameras",
                     "public_cameras_query": "City cameras: search text (street or camera name)",
                     "public_cameras_radius": "City cameras: radius from home, km (0 — no radius filter)"
+                }
+            },
+            "phone": {
+                "title": "Sign in by phone call",
+                "description": "For accounts without a password (connected via a management company). Enter the phone number tied to your account.",
+                "data": {
+                    "name": "Name",
+                    "dom_link": "Ufanet dom link",
+                    "phone": "Phone (+7…)",
+                    "camera_image_refresh_interval": "Camera refresh interval (seconds)",
+                    "public_cameras": "Add city cameras",
+                    "public_cameras_query": "City cameras: search text (street or camera name)",
+                    "public_cameras_radius": "City cameras: radius from home, km (0 — no radius filter)"
+                }
+            },
+            "phone_confirm": {
+                "title": "Call to confirm",
+                "description": "From the phone tied to your account, call **{phone_to_call}** (free, no need to get through — hang up when it starts ringing). Then press Submit."
+            },
+            "phone_contract": {
+                "title": "Choose a contract",
+                "data": {
+                    "contract_id": "Contract"
                 }
             }
         }

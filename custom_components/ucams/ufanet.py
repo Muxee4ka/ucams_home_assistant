@@ -8,9 +8,16 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from .utils import (
+    AUTH_PHONE,
+    CONF_ACCESS_TOKEN,
+    CONF_AUTH_METHOD,
+    CONF_CONTRACT_ID,
     CONF_DOM_URL,
     CONF_PASSWORD,
+    CONF_REFRESH_TOKEN,
     CONF_USERNAME,
+    PHONE_APPLICATION_ID,
+    PHONE_COUNTRY_ID,
     TOKEN_REFRESH_BUFFER,
     decode_token,
 )
@@ -25,12 +32,77 @@ HEADERS = {
 BASE_URL = "https://dom.ufanet.ru/"
 
 
+class PhoneAuthError(Exception):
+    """Raised when a phone-call auth step fails (see phone_auth_* below)."""
+
+
+async def _phone_post(session, base_url, path, payload=None, headers=None):
+    url = urljoin(base_url, path)
+    async with session.post(url, json=payload, headers=headers) as resp:
+        resp.raise_for_status()
+        return await resp.json()
+
+
+async def phone_auth_init(session, base_url: str, phone: str) -> dict:
+    """Start a call-auth attempt. Returns {phone_to_call, request_id, timeout}.
+
+    The user then calls `phone_to_call` from `phone`; Ufanet recognises the
+    incoming number. See memory phone-auth-flow for the full contract.
+    """
+    data = await _phone_post(
+        session,
+        base_url,
+        "api/v4/phone_auth/call/init/",
+        {
+            "phone": phone,
+            "application_id": PHONE_APPLICATION_ID,
+            "country_id": PHONE_COUNTRY_ID,
+        },
+    )
+    payload = data.get("data") or {}
+    if not payload.get("request_id") or not payload.get("phone_to_call"):
+        raise PhoneAuthError(f"Unexpected init response: {data}")
+    return payload
+
+
+async def phone_auth_contact_list(session, base_url: str, request_id: str) -> list[dict]:
+    """Return the contracts tied to the calling number, once the call landed.
+
+    Empty until Ufanet has registered the incoming call, so the caller polls.
+    """
+    data = await _phone_post(
+        session, base_url, "api/v4/phone_auth/call/contact_list/", {"request_id": request_id}
+    )
+    return ((data.get("data") or {}).get("contracts")) or []
+
+
+async def phone_auth_apply(session, base_url: str, request_id: str, contract_id: int) -> dict:
+    """Exchange a confirmed call for the dom JWT pair {access, refresh}."""
+    data = await _phone_post(
+        session,
+        base_url,
+        "api/v4/phone_auth/call/apply/",
+        {"request_id": request_id, "contract_id": contract_id},
+    )
+    payload = data.get("data") or {}
+    if not payload.get("access") or not payload.get("refresh"):
+        raise PhoneAuthError(f"Unexpected apply response: {data}")
+    return payload
+
+
 class DomApi:
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry):
         self.hass = hass
-        self.username = config_entry.options[CONF_USERNAME]
-        self.password = config_entry.options[CONF_PASSWORD]
-        self.base_url = config_entry.options[CONF_DOM_URL]
+        self.config_entry = config_entry
+        opts = config_entry.options
+        data = config_entry.data
+        # dom_link lives in options for password entries; phone entries created
+        # by the config flow put it in data too, so fall back gracefully.
+        self.base_url = opts.get(CONF_DOM_URL) or data.get(CONF_DOM_URL) or BASE_URL
+        # Phone accounts have no password: they seed the JWT pair captured
+        # during the call-auth flow and can only ever renew via the refresh
+        # token. Password accounts keep the original behaviour untouched.
+        self.auth_method = data.get(CONF_AUTH_METHOD, opts.get(CONF_AUTH_METHOD))
         self.session = aiohttp.ClientSession(
             headers=HEADERS,
             trust_env=True,
@@ -40,22 +112,47 @@ class DomApi:
         )
         self.token: str | None = None
         self.token_expiration: int = 0
-        # Refresh token issued alongside `access` by /auth_by_contract/.
-        # Lives ~5 months and lets us renew access without re-sending the
-        # password. The refresh response rotates *both* tokens, so we update
-        # the stored refresh on each renewal.
+        # Refresh token issued alongside `access` by /auth_by_contract/ and by
+        # the call-auth /apply/ step. Lives ~5 months and lets us renew access
+        # without re-sending the password. The refresh response rotates *both*
+        # tokens, so we update the stored refresh on each renewal.
         self.refresh_token: str | None = None
         self.refresh_token_expiration: int = 0
 
-    def _store_tokens(self, access: str, refresh: str | None) -> None:
+        if self.auth_method == AUTH_PHONE:
+            self.username = data.get(CONF_CONTRACT_ID)
+            self.password = None
+            self._store_tokens(data[CONF_ACCESS_TOKEN], data.get(CONF_REFRESH_TOKEN))
+        else:
+            self.username = opts[CONF_USERNAME]
+            self.password = opts[CONF_PASSWORD]
+
+    def _store_tokens(self, access: str, refresh: str | None, persist: bool = False) -> None:
         self.token = access
         self.token_expiration = int(decode_token(access).get("exp", 0))
         self.session.headers["Authorization"] = f"JWT {access}"
         if refresh:
             self.refresh_token = refresh
             self.refresh_token_expiration = int(decode_token(refresh).get("exp", 0))
+        if persist and self.auth_method == AUTH_PHONE:
+            # Phone accounts can't re-login from scratch, so the rotated refresh
+            # token must survive a restart — write it back to the config entry.
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data={
+                    **self.config_entry.data,
+                    CONF_ACCESS_TOKEN: self.token,
+                    CONF_REFRESH_TOKEN: self.refresh_token,
+                },
+            )
 
     async def _authenticate(self):
+        if self.auth_method == AUTH_PHONE:
+            # No password to fall back on; the refresh token is dead. The user
+            # must re-run the call-auth flow via reauth.
+            raise ConfigEntryAuthFailed(
+                "Phone-auth session expired; re-add the integration to sign in by call again"
+            )
         url = urljoin(self.base_url, "api/v1/auth/auth_by_contract/")
         payload = {"contract": self.username, "password": self.password}
         try:
@@ -100,7 +197,7 @@ class DomApi:
         access = data.get("access")
         if not access:
             return False
-        self._store_tokens(access, data.get("refresh"))
+        self._store_tokens(access, data.get("refresh"), persist=True)
         return True
 
     async def get_authenticated_session(self):
