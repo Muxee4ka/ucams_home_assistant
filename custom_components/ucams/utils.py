@@ -133,12 +133,17 @@ def build_object_id(device_name: str, suffix: str | int | None) -> str:
     return f"{device_slug}_{suffix_slug}" if suffix_slug else device_slug
 
 
-def decode_token(token: str) -> dict:
+def decode_token(token: str | None) -> dict:
     """Decode a JWT payload without verifying the signature.
 
     Falls back to manually base64-decoding the first segment when PyJWT can't
     parse the token (some Ufanet endpoints hand back non-standard tokens).
+    Returns `{}` for a missing token: `/api/v1/cctv` does occasionally hand
+    back `token_l: null`, and callers treat an empty payload as "no expiry".
     """
+    if not isinstance(token, str) or not token:
+        return {}
+
     try:
         return jwt.decode(token, options={"verify_signature": False})
     except jwt.PyJWTError:

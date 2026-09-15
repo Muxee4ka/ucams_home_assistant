@@ -340,3 +340,71 @@ def test_build_display_name_keeps_city_cameras_in_russian(ucams_api):
     assert (
         ucams_api.build_device_name(public["title"]) == "Test config.metromost, ul dal'njaja, d 8"
     )
+
+
+@pytest.mark.asyncio
+async def test_null_token_triggers_refresh(ucams_api, mock_ufanet_api):
+    """A camera cached with `token_l: null` is re-pulled, not left dead until reload."""
+    tokenless = {**CCTV_FAKE_ITEM, "token_l": None}
+    payloads = [[tokenless], [CCTV_FAKE_ITEM]]
+
+    async def get_cctv_list_seq():
+        return payloads.pop(0) if len(payloads) > 1 else payloads[0]
+
+    mock_ufanet_api.get_cctv_list = get_cctv_list_seq
+    await ucams_api.get_cameras_info()
+
+    number = CCTV_FAKE_ITEM["number"]
+    url = await ucams_api.get_camera_stream_url(number)
+
+    assert url == f"rtsp://flussonic-msk-1.cams.example.com/{number}?token={LIVE_TOKEN}&tracks=v1a1"
+
+
+@pytest.mark.asyncio
+async def test_null_token_falls_back_to_cams_server(ucams_api, mock_ufanet_api):
+    """When dom keeps handing back no token, cams_server `this` mints one."""
+    tokenless = {**CCTV_FAKE_ITEM, "token_l": None}
+    mock_ufanet_api.cctv_payload = [tokenless]
+    minted = {
+        **PUBLIC_FAKE_ITEM,
+        "number": CCTV_FAKE_ITEM["number"],
+        "title": "другое название",
+        "address": "другой адрес",
+    }
+    calls = _attach_cams_session(ucams_api, [{"count": 1, "results": [minted]}])
+    await ucams_api.get_cameras_info()
+
+    number = CCTV_FAKE_ITEM["number"]
+    url = await ucams_api.get_camera_stream_url(number)
+
+    assert url == f"rtsp://manul-nn-12.cams.example.com/{number}?token={LIVE_TOKEN}&tracks=v1a1"
+    this_url, payload = calls[0]
+    assert this_url == "https://cams.example.com/api/v0/cameras/this/"
+    assert payload["numbers"] == [number]
+    # dom-side title/address survive — entity ids and areas were built from them.
+    camera = ucams_api.cameras[number]
+    assert camera["title"] == CCTV_FAKE_ITEM["title"]
+    assert camera["address"] == CCTV_FAKE_ITEM["address"]
+    assert camera["is_public"] is False
+
+
+@pytest.mark.asyncio
+async def test_failed_token_renewal_backs_off(ucams_api, mock_ufanet_api):
+    """A camera nobody can mint a token for isn't re-fetched on every call."""
+    fetches = 0
+
+    async def get_cctv_list():
+        nonlocal fetches
+        fetches += 1
+        return [{**CCTV_FAKE_ITEM, "token_l": None}]
+
+    mock_ufanet_api.get_cctv_list = get_cctv_list
+    calls = _attach_cams_session(ucams_api, [{"count": 0, "results": []}])
+    await ucams_api.get_cameras_info()
+
+    number = CCTV_FAKE_ITEM["number"]
+    assert await ucams_api.get_camera_stream_url(number) is None
+    assert await ucams_api.get_camera_stream_url(number) is None
+
+    assert fetches == 2  # setup + one renewal attempt; the second call is in cooldown
+    assert len(calls) == 1
