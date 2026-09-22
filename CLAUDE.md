@@ -50,9 +50,12 @@ come back `null`, so `get_camera_archive` refuses them before making a request.
 
 ```
 { "cameras_api", "dom_api", "cameras_info", "public_cameras_info",
+  "call_history_coordinator" (built in __init__ before platforms: sensor
+                              and event both read it, and HA sets platforms
+                              up concurrently),
+  "push_listener" (only with the push option on),
   "camera_entities" (set by camera.py),
-  "archive_link_sensors" (set by sensor.py),
-  "call_history_coordinator" (set by sensor.py) }
+  "archive_link_sensors" (set by sensor.py) }
 ```
 
 `public_cameras_info` is deliberately a **separate bag** from `cameras_info`:
@@ -65,9 +68,34 @@ still come up.
 
 Services (`ucams.snapshot`, `ucams.get_archive`) are registered once globally and only removed when the last `ucams` entry unloads (`_ucams_entries`). The snapshot service falls back to `assets/no_snapshot.png` when the RTSP grab fails so automations always get a file.
 
-### Platforms (six)
+### Push notifications (`push.py`, opt-in `CONF_PUSH`)
 
-`PLATFORMS = [IMAGE, CAMERA, SWITCH, SENSOR, BUTTON, GEO_LOCATION]`. They cluster around shared **device identifiers** of the form `(DOMAIN, f"{entry_id}_{camera_id}")` so the camera, image, switch (intercom), archive button, archive-link sensor, last-call sensor, and geo_location entity all show up under one HA device. Skud entries without a `cctv_number` get their own device id keyed by `skud_id` instead.
+Ufanet has no webhook for calls; its app gets FCM data pushes with
+`data.reason == "sip"`. `push.PushListener` runs a headless FCM client
+(`firebase-messaging`, Firebase config of the `ru.ufanet.smarthome` APK in
+`utils.FCM_*`) and registers it via `POST /api/v0/fcm/` as a «Home Assistant»
+device of the account. State (FCM creds, `device_id`, persistent ids) lives in
+the `ucams.push.<entry_id>` Store so restarts reuse one registration. A push
+only calls `coordinator.async_refresh_for_call` — history stays the source of
+truth (`push.data.uuid` ≠ history uuid; only `time` == `called_at`).
+
+- **`DELETE /api/v0/fcm/` revokes the refresh token of the session that
+  registered the device.** So it's only called on entry removal and when push
+  is switched off on a *password* account; call-auth accounts keep the row.
+- Some RU ISPs cut the MCS link (`mtalk.google.com:5228`) exactly 20s after
+  login; the library reconnects in ~0.5s and Google queues pushes. The
+  `_DropRoutineDisconnects` log filter mutes that traceback. The library gives
+  up for good after repeated failures, hence our own watchdog + backoff.
+- User-facing notifications are `blueprints/automation/ucams/intercom_call_notification.yaml`
+  (snapshot + «Открыть дверь» actionable notification), linked from the README
+  via a my.home-assistant import badge that points at `master`. It keeps the
+  pre-2024.10 `platform:`/`service:` syntax for the 2024.4 minimum.
+- `firebase-messaging>=0.4.0` on purpose: 0.4.1/0.4.4/0.4.5 pin protobuf <5 /
+  <6 / >=6.30, matching HA 2024.4 / 2024.12 / 2025.6+ constraints.
+
+### Platforms (seven)
+
+`PLATFORMS = [IMAGE, CAMERA, SWITCH, SENSOR, BUTTON, GEO_LOCATION, EVENT]`. They cluster around shared **device identifiers** of the form `(DOMAIN, f"{entry_id}_{camera_id}")` so the camera, image, switch (intercom), archive button, archive-link sensor, last-call sensor, and geo_location entity all show up under one HA device. Skud entries without a `cctv_number` get their own device id keyed by `skud_id` instead.
 
 - **`camera.Ucams`** — `CameraEntityFeature.STREAM` only, no still endpoint upstream. `use_stream_for_stills=True` and `handle_snapshot_from_rtsp` calls `async_get_image()` (the HA stream component path) — **not** `entity.async_camera_image()`. A periodic `async_track_time_interval` keeps the active stream's source URL in sync as `token_l` rotates.
 - **`image.UcamsCameraImageEntity`** — pulls `screenshot_domain` JPEGs on a `CONF_CAMERA_IMAGE_REFRESH_INTERVAL` cadence by bumping `_attr_image_last_updated` (which causes HA to re-call `async_image`).
@@ -77,6 +105,7 @@ Services (`ucams.snapshot`, `ucams.get_archive`) are registered once globally an
   - `ArchiveLinkSensor` — passive sensor; `update_link()` is called from the snapshot/archive flow and from `ArchiveButton`.
   - `ContractDetailSensor` / `ServiceDetailSensor` — billing data from `get_all_contracts` / `get_contract_details`.
 - **`button.ArchiveButton`** — three preset durations (5min / 1h / 5h) per camera; presses request an archive URL and write it to the matching `ArchiveLinkSensor`.
+- **`event.IntercomCallEvent`** — doorbell event (`ring`) per skud with a `cctv_number`, fired once per new call-history uuid of that camera. Seeds seen uuids at init (no replay) and skips calls older than 5 min (catch-up after an outage). Works with polling alone; push just makes it fire ~1s after the call.
 - **`geo_location.UcamsLocation`** — only created for cameras that report lat/lon. Distance to home is computed once at init (cameras don't move).
 
 ### Conventions worth knowing

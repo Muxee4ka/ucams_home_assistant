@@ -14,9 +14,12 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.typing import ConfigType
 
+from .coordinator import async_refresh_for_call, build_call_history_coordinator
+from .push import PushListener, async_remove_registration
 from .ucams import UcamsApi
 from .ufanet import DomApi
 from .utils import (
+    AUTH_PHONE,
     CONF_CAMERA_IMAGE_REFRESH_INTERVAL,
     CONF_DOM_URL,
     CONF_NAME,
@@ -25,6 +28,7 @@ from .utils import (
     CONF_PUBLIC_CAMERAS,
     CONF_PUBLIC_CAMERAS_QUERY,
     CONF_PUBLIC_CAMERAS_RADIUS,
+    CONF_PUSH,
     CONF_USERNAME,
     DEFAULT_PUBLIC_CAMERAS_RADIUS,
     DOMAIN,
@@ -39,6 +43,7 @@ PLATFORMS: list[str] = [
     Platform.SENSOR,
     Platform.BUTTON,
     Platform.GEO_LOCATION,
+    Platform.EVENT,
 ]
 
 ASSETS_PATH = Path(__file__).parent / "assets"
@@ -65,6 +70,7 @@ _TUNING_SCHEMA = {
         msg="City cameras radius (km)",
         default=DEFAULT_PUBLIC_CAMERAS_RADIUS,
     ): vol.Coerce(float),
+    vol.Optional(CONF_PUSH, msg="Push notifications", default=False): bool,
 }
 
 # Password flow (unchanged): dom url + contract/password + tuning.
@@ -124,14 +130,54 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         # read it, so archive buttons and area assignment can't pick them up.
         "public_cameras_info": public_cameras_info,
     }
+    # Owned here, not by a platform: sensor and event both read it and HA sets
+    # platforms up concurrently.
+    coordinator = build_call_history_coordinator(hass, ufanet_api)
+    await coordinator.async_config_entry_first_refresh()
+    hass.data[config_entry.entry_id]["call_history_coordinator"] = coordinator
     await _async_register_static_assets(hass)
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
+    await _async_setup_push(hass, config_entry, ufanet_api, coordinator)
     _assign_areas_by_address(hass, config_entry, cameras_info)
     _async_register_services(hass)
     # Options decide which entities exist (city-camera filters especially), so
     # they only take effect on a reload — do it for the user.
     config_entry.async_on_unload(config_entry.add_update_listener(_async_options_updated))
     return True
+
+
+async def _async_setup_push(
+    hass: HomeAssistant, config_entry: ConfigEntry, dom_api: DomApi, coordinator
+) -> None:
+    """Start the FCM listener, or clean up after it when push got switched off.
+
+    Turning push off on a password account drops the FCM device from the
+    account. On a call-auth account it doesn't: `DELETE /api/v0/fcm/` revokes
+    the refresh token of the session that registered the device — ours — and
+    with no password to log back in the entry would land in reauth. There the
+    registration just stays (Ufanet keeps pushing to a token nobody listens
+    on) and is reused if push is turned back on.
+    """
+    if not config_entry.options.get(CONF_PUSH, False):
+        if dom_api.auth_method != AUTH_PHONE:
+            await async_remove_registration(hass, config_entry.entry_id, dom_api)
+        return
+
+    async def _on_call(called_at) -> None:
+        await async_refresh_for_call(coordinator, called_at)
+
+    listener = PushListener(hass, config_entry.entry_id, dom_api, _on_call)
+    await listener.async_start()
+    hass.data[config_entry.entry_id]["push_listener"] = listener
+
+
+async def async_remove_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> None:
+    """Take our FCM device off the Ufanet account when the entry is deleted."""
+    dom_api = DomApi(hass, config_entry)
+    try:
+        await async_remove_registration(hass, config_entry.entry_id, dom_api)
+    finally:
+        await dom_api.close()
 
 
 async def _async_options_updated(hass: HomeAssistant, config_entry: ConfigEntry) -> None:
@@ -208,6 +254,8 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
     res = await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
     if res:
         data = hass.data.pop(config_entry.entry_id)
+        if listener := data.get("push_listener"):
+            await listener.async_stop()
         await data["cameras_api"].close()
         await data["dom_api"].close()
         if not _ucams_entries(hass):

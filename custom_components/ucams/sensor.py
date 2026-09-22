@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -9,12 +9,10 @@ from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
 )
 
+from .coordinator import parse_called_at
 from .utils import DOMAIN, build_object_id
 
 _LOGGER = logging.getLogger(__name__)
-
-CALL_HISTORY_PAGE_SIZE = 20
-CALL_HISTORY_SCAN_INTERVAL = timedelta(seconds=30)
 
 
 def _fmt_ts(ts: int | None) -> str:
@@ -23,43 +21,13 @@ def _fmt_ts(ts: int | None) -> str:
     return datetime.fromtimestamp(ts).strftime("%d.%m.%Y %H:%M:%S")
 
 
-def _parse_called_at(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        # fromisoformat handles "2026-05-07T12:34:56+05:00" and Z-suffixed values on 3.11+
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
-def _build_call_history_coordinator(hass, dom_api) -> DataUpdateCoordinator:
-    async def _update():
-        data = await dom_api.get_call_history(page_size=CALL_HISTORY_PAGE_SIZE)
-        if isinstance(data, dict):
-            return data.get("results") or []
-        if isinstance(data, list):
-            return data
-        return []
-
-    return DataUpdateCoordinator(
-        hass,
-        _LOGGER,
-        name="ucams_call_history",
-        update_method=_update,
-        update_interval=CALL_HISTORY_SCAN_INTERVAL,
-    )
-
-
 async def async_setup_entry(hass, config_entry, async_add_entities):
     dom_api = hass.data[config_entry.entry_id]["dom_api"]
     cameras_api = hass.data[config_entry.entry_id]["cameras_api"]
 
     sensors: list = []
 
-    coordinator = _build_call_history_coordinator(hass, dom_api)
-    await coordinator.async_config_entry_first_refresh()
-    hass.data[config_entry.entry_id]["call_history_coordinator"] = coordinator
+    coordinator = hass.data[config_entry.entry_id]["call_history_coordinator"]
 
     try:
         skud_list = await dom_api.get_shared_skud()
@@ -279,7 +247,7 @@ class LastCallSensor(CoordinatorEntity, SensorEntity):
         calls = self._matching_calls
         if not calls:
             return None
-        return _parse_called_at(calls[0].get("called_at"))
+        return parse_called_at(calls[0].get("called_at"))
 
     @property
     def extra_state_attributes(self):

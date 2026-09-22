@@ -275,5 +275,39 @@ class DomApi:
             resp.raise_for_status()
             return await resp.json()
 
+    async def register_push_device(self, token: str, device_id: str, title: str) -> None:
+        """Bind an FCM registration token to this account.
+
+        Same call the Android app makes after `FirebaseMessaging.getToken()`.
+        Re-posting an existing `device_id` just refreshes its token, so it is
+        safe to run on every start. The device then shows up in the app's
+        «active devices» list.
+        """
+        session = await self.get_authenticated_session()
+        url = urljoin(self.base_url, "api/v0/fcm/")
+        payload = {
+            "token": token,
+            "device_id": device_id,
+            "title": title,
+            "application": PHONE_APPLICATION_ID,
+            "os": 0,
+            "token_type": 0,
+        }
+        async with session.post(url, json=payload) as resp:
+            resp.raise_for_status()
+
+    async def unregister_push_device(self, device_id: str) -> None:
+        """Drop an FCM registration.
+
+        Not a harmless unsubscribe: Ufanet also revokes the refresh token of the
+        session behind that device (the access token lives on until it
+        expires). Password accounts just log in again; call-auth accounts end
+        up in reauth.
+        """
+        session = await self.get_authenticated_session()
+        url = urljoin(self.base_url, "api/v0/fcm/")
+        async with session.delete(url, json={"device_id": device_id}) as resp:
+            resp.raise_for_status()
+
     async def close(self):
         await self.session.close()

@@ -29,7 +29,8 @@
                     "camera_image_refresh_interval": "Camera refresh interval (seconds)",
                     "public_cameras": "Add city cameras",
                     "public_cameras_query": "City cameras: search text (street or camera name)",
-                    "public_cameras_radius": "City cameras: radius from home, km (0 — no radius filter)"
+                    "public_cameras_radius": "City cameras: radius from home, km (0 — no radius filter)",
+                    "push_notifications": "Intercom call push notifications (registers Home Assistant as a device in the Ufanet app)"
                 }
             },
             "phone": {
@@ -42,7 +43,8 @@
                     "camera_image_refresh_interval": "Camera refresh interval (seconds)",
                     "public_cameras": "Add city cameras",
                     "public_cameras_query": "City cameras: search text (street or camera name)",
-                    "public_cameras_radius": "City cameras: radius from home, km (0 — no radius filter)"
+                    "public_cameras_radius": "City cameras: radius from home, km (0 — no radius filter)",
+                    "push_notifications": "Intercom call push notifications (registers Home Assistant as a device in the Ufanet app)"
                 }
             },
             "phone_confirm": {
@@ -102,7 +104,8 @@
                     "camera_image_refresh_interval": "Camera refresh interval (seconds)",
                     "public_cameras": "Add city cameras",
                     "public_cameras_query": "City cameras: search text (street or camera name)",
-                    "public_cameras_radius": "City cameras: radius from home, km (0 — no radius filter)"
+                    "public_cameras_radius": "City cameras: radius from home, km (0 — no radius filter)",
+                    "push_notifications": "Intercom call push notifications (registers Home Assistant as a device in the Ufanet app)"
                 }
             }
         }

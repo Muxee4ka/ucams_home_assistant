@@ -29,6 +29,30 @@ CONF_PUBLIC_CAMERAS = "public_cameras"
 CONF_PUBLIC_CAMERAS_QUERY = "public_cameras_query"
 CONF_PUBLIC_CAMERAS_RADIUS = "public_cameras_radius"
 DEFAULT_PUBLIC_CAMERAS_RADIUS = 5.0
+# Opt-in push delivery of intercom calls. Ufanet has no webhook/websocket: the
+# app learns about calls from FCM data pushes (`data.reason == "sip"`), so we
+# register a headless FCM client as one more «device» of the account. The push
+# only wakes the call-history coordinator; history stays the source of truth.
+CONF_PUSH = "push_notifications"
+# Firebase client config of the «Умный дом» Android app (ru.ufanet.smarthome
+# 4.0.15, res/values/strings.xml). These ship inside every APK and are not
+# secrets — Google designs Android Firebase keys to be public — but they're
+# Ufanet's, and a newer app build may rotate them. Kept base64-encoded only so
+# the raw key doesn't sit in the repo as plain text; it protects nothing.
+# Refresh: pull the APK, `aapt2 dump resources`, re-encode the same JSON keys.
+_FCM_CONFIG = json.loads(
+    base64.b64decode(
+        "eyJwcm9qZWN0X2lkIjoic21hcnRob21lLWJmMDZlIiwic2VuZGVyX2lkIjoiOTk1MDUyNTY5MDIiLCJhcHBf"
+        "aWQiOiIxOjk5NTA1MjU2OTAyOmFuZHJvaWQ6ZWUyM2EwYjQ2NGQ5YTE2NiIsImFwaV9rZXkiOiJBSXphU3lE"
+        "aVE1MFF0TC1yX1VmbXZMd0V4VkV4R3h4LWRFTGI4NVUifQ=="
+    )
+)
+FCM_PROJECT_ID: str = _FCM_CONFIG["project_id"]
+FCM_SENDER_ID: str = _FCM_CONFIG["sender_id"]
+FCM_APP_ID: str = _FCM_CONFIG["app_id"]
+FCM_API_KEY: str = _FCM_CONFIG["api_key"]
+# The title Ufanet shows for our registration in the app's «active devices».
+FCM_DEVICE_TITLE = "Home Assistant"
 # Ufanet publishes ~2000 city cameras across every town it serves. Without a
 # query or a radius the whole list would land in HA, so cap what we create and
 # tell the user to narrow the filters.

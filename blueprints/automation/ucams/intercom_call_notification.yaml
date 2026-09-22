@@ -1,0 +1,122 @@
+blueprint:
+  name: Ucams — уведомление о звонке в домофон
+  description: >
+    Присылает на телефон уведомление о звонке в домофон Уфанет со снимком с
+    камеры и кнопкой «Открыть дверь».
+
+
+    Срабатывает на сущность «Звонок …» интеграции Ucams. С включённой в
+    настройках интеграции опцией «Push-уведомления о звонках» уведомление
+    приходит примерно через секунду после звонка, без неё — в течение 30 секунд.
+  domain: automation
+  homeassistant:
+    min_version: "2024.4.0"
+  source_url: https://github.com/Muxee4ka/ucams_home_assistant/blob/master/blueprints/automation/ucams/intercom_call_notification.yaml
+  input:
+    call_event:
+      name: Домофон
+      description: Сущность «Звонок …» нужного домофона.
+      selector:
+        entity:
+          filter:
+            - integration: ucams
+              domain: event
+    camera:
+      name: Камера для снимка
+      description: Обычно камера того же домофона.
+      selector:
+        entity:
+          filter:
+            - integration: ucams
+              domain: camera
+    door_switch:
+      name: Кнопка открытия двери
+      description: Выключатель этого домофона. Если не указан, кнопки «Открыть дверь» в уведомлении не будет.
+      default: ""
+      selector:
+        entity:
+          filter:
+            - integration: ucams
+              domain: switch
+    notify_device:
+      name: Телефон
+      description: Устройство с приложением Home Assistant Companion.
+      selector:
+        device:
+          filter:
+            - integration: mobile_app
+    open_timeout:
+      name: Сколько ждать нажатия «Открыть дверь»
+      default: 60
+      selector:
+        number:
+          min: 10
+          max: 300
+          unit_of_measurement: s
+
+# Два звонка подряд — два уведомления, у каждого своя кнопка.
+mode: parallel
+max: 5
+
+variables:
+  camera: !input camera
+  door_switch: !input door_switch
+  # Один файл на камеру, перезаписывается при каждом звонке — снимки не
+  # копятся в www/. Метка времени в ссылке не даёт телефону взять старый из кэша.
+  snapshot_file: "/config/www/ucams_snapshots/intercom_{{ camera | replace('.', '_') }}.jpg"
+  open_action: "UCAMS_OPEN_{{ context.id }}"
+
+trigger:
+  - platform: state
+    entity_id: !input call_event
+
+condition:
+  # Событие при каждом новом звонке меняет состояние на время звонка. Переходы
+  # из unavailable — это перезапуск HA или интеграции, а не звонок.
+  - condition: template
+    value_template: >
+      {{ trigger.from_state is not none
+         and trigger.from_state.state != 'unavailable'
+         and trigger.to_state.state not in ['unknown', 'unavailable']
+         and trigger.to_state.attributes.event_type == 'ring' }}
+
+action:
+  # Снимок — на верхнем уровне, не внутри if: иначе snap не виден ниже.
+  # Если кадр с RTSP не получился, сервис сам подставит заглушку.
+  - service: ucams.snapshot
+    data:
+      entity_id: "{{ camera }}"
+      filename: "{{ snapshot_file }}"
+    response_variable: snap
+    continue_on_error: true
+  - variables:
+      flat: "{{ trigger.to_state.attributes.flat }}"
+      notify_data: >
+        {% set d = {'tag': 'ucams_' ~ trigger.entity_id,
+                    'clickAction': 'entityId:' ~ camera} %}
+        {% if snap is defined and snap.url %}
+          {% set d = dict(d, image=snap.url ~ '?t=' ~ (as_timestamp(now()) | int)) %}
+        {% endif %}
+        {% if door_switch %}
+          {% set d = dict(d, actions=[{'action': open_action, 'title': 'Открыть дверь'}]) %}
+        {% endif %}
+        {{ d }}
+  - device_id: !input notify_device
+    domain: mobile_app
+    type: notify
+    title: Звонок в домофон
+    message: "{{ 'Квартира ' ~ flat if flat else 'Кто-то звонит в домофон' }}"
+    data: "{{ notify_data }}"
+  - if: "{{ door_switch != '' }}"
+    then:
+      - wait_for_trigger:
+          - platform: event
+            event_type: mobile_app_notification_action
+            event_data:
+              action: "{{ open_action }}"
+        timeout:
+          seconds: !input open_timeout
+        continue_on_timeout: false
+      - service: switch.turn_on
+        target:
+          entity_id: "{{ door_switch }}"
