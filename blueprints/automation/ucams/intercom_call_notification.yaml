@@ -64,7 +64,6 @@ variables:
   # Один файл на камеру, перезаписывается при каждом звонке — снимки не
   # копятся в www/. Метка времени в ссылке не даёт телефону взять старый из кэша.
   snapshot_file: "/config/www/ucams_snapshots/intercom_{{ camera | replace('.', '_') }}.jpg"
-  open_action: "UCAMS_OPEN_{{ context.id }}"
 
 trigger:
   - platform: state
@@ -91,6 +90,10 @@ action:
     continue_on_error: true
   - variables:
       flat: "{{ trigger.to_state.attributes.flat }}"
+      # Своё имя кнопки у каждого звонка, чтобы нажатие в старом уведомлении не
+      # открыло дверь по новому. `context` в переменных автоматизации не
+      # определён, а контекст самого изменения состояния уникален.
+      open_action: "UCAMS_OPEN_{{ trigger.to_state.context.id }}"
       notify_data: >
         {% set d = {'tag': 'ucams_' ~ trigger.entity_id,
                     'clickAction': 'entityId:' ~ camera} %}
