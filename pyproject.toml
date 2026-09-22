@@ -22,9 +22,11 @@ include = ["custom_components*"]
 runtime = [
     "pyjwt",
     "websockets",
+    "firebase-messaging>=0.4.0",
 ]
 dev = [
     "homeassistant",
+    "firebase-messaging>=0.4.0",
     "aiohttp",
     "pytest",
     "pytest-asyncio",
