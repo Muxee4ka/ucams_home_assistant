@@ -1,5 +1,6 @@
 """Tests for the ucams module."""
 
+import asyncio
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
@@ -408,3 +409,57 @@ async def test_failed_token_renewal_backs_off(ucams_api, mock_ufanet_api):
 
     assert fetches == 2  # setup + one renewal attempt; the second call is in cooldown
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_stale_tokens_share_one_list_refresh(ucams_api, mock_ufanet_api):
+    """Cameras whose tokens go stale together trigger one /api/v1/cctv call, not N (429)."""
+    numbers = [f"CAM{i:012d}" for i in range(5)]
+    fetches = 0
+    token = EXPIRED_LIVE_TOKEN
+
+    async def get_cctv_list():
+        nonlocal fetches
+        fetches += 1
+        await asyncio.sleep(0)  # let the other renewals pile up on the lock
+        return [{**CCTV_FAKE_ITEM, "number": n, "token_l": token} for n in numbers]
+
+    mock_ufanet_api.get_cctv_list = get_cctv_list
+    await ucams_api.get_cameras_info()
+    token = LIVE_TOKEN
+
+    urls = await asyncio.gather(*(ucams_api.get_camera_stream_url(n) for n in numbers))
+
+    assert all(urls)
+    assert fetches == 2  # setup + a single shared refresh
+
+
+@pytest.mark.asyncio
+async def test_failed_list_refresh_is_not_retried_by_every_camera(ucams_api, mock_ufanet_api):
+    """A 429 on the shared refresh must not be repeated by each waiting camera."""
+    numbers = [f"CAM{i:012d}" for i in range(3)]
+    mock_ufanet_api.cctv_payload = [
+        {**CCTV_FAKE_ITEM, "number": n, "token_l": EXPIRED_LIVE_TOKEN} for n in numbers
+    ]
+    await ucams_api.get_cameras_info()
+    mock_ufanet_api.get_cctv_list = AsyncMock(side_effect=RuntimeError("429"))
+    ucams_api._mint_contract_tokens = AsyncMock()
+
+    results = await asyncio.gather(
+        *(ucams_api.get_camera_stream_url(n) for n in numbers), return_exceptions=True
+    )
+
+    assert mock_ufanet_api.get_cctv_list.await_count == 1
+    assert sum(isinstance(r, RuntimeError) for r in results) == 1
+
+
+@pytest.mark.asyncio
+async def test_empty_cctv_list_keeps_known_cameras(ucams_api, mock_ufanet_api):
+    """Ufanet sometimes answers `[]` during an outage; known cameras must survive it."""
+    mock_ufanet_api.cctv_payload = [CCTV_FAKE_ITEM]
+    await ucams_api.get_cameras_info()
+    mock_ufanet_api.cctv_payload = []
+
+    cameras = await ucams_api.get_cameras_info()
+
+    assert list(cameras) == [CCTV_FAKE_ITEM["number"]]

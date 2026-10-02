@@ -63,8 +63,15 @@ only `camera`/`image`/`geo_location` merge the two (via `utils.all_cameras_info`
 Archive buttons, archive-link sensors and `_assign_areas_by_address` keep reading
 `cameras_info` alone — city cameras have no archive, and pinning them to areas
 would spawn one area per street. Their discovery failure is non-fatal by design
-(`_async_load_public_cameras` logs and returns `{}`); the user's own cameras must
-still come up.
+(`_async_load_public_cameras` logs, returns `{}` and schedules an entry reload in
+`PUBLIC_CAMERAS_RETRY_DELAY`); the user's own cameras must still come up.
+
+**Ufanet outages answer `/api/v1/cctv` with HTTP 200 and `[]`.** At setup that
+raises `ConfigEntryNotReady` when the entry already has archive buttons in the
+entity registry (contract cameras existed before); mid-session `get_cameras_info`
+keeps the known cameras instead of wiping them. Token renewal goes through
+`_refresh_camera_source`, which coalesces the per-camera timers into one list
+fetch per `SOURCE_REFRESH_MIN_INTERVAL` — one fetch per camera got 429s.
 
 Services (`ucams.snapshot`, `ucams.get_archive`) are registered once globally and only removed when the last `ucams` entry unloads (`_ucams_entries`). The snapshot service falls back to `assets/no_snapshot.png` when the RTSP grab fails so automations always get a file.
 

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections import Counter
 from time import time
@@ -50,6 +51,11 @@ CAMERA_FIELDS = [
 # usable live token. Without it every image refresh and every stream retry
 # would re-pull the whole camera list for a camera that is simply broken.
 TOKEN_RETRY_COOLDOWN = 300
+# Every camera entity re-checks its token on its own timer, and they all got
+# their tokens from the same list fetch, so they go stale together. Ufanet
+# answers that burst of identical list requests with 429; within this window
+# a camera reuses the refresh another one just did instead of asking again.
+SOURCE_REFRESH_MIN_INTERVAL = 60
 
 
 def _public_camera_title(title: str | None, address: str | None) -> str:
@@ -137,6 +143,10 @@ class UcamsApi:
         self.token: str | None = None
         self.token_expiration: int = 0
         self._cams_session: ClientSession | None = None
+        # "contract"/"public" -> lock + time of the last list refresh, see
+        # SOURCE_REFRESH_MIN_INTERVAL.
+        self._source_locks = {"contract": asyncio.Lock(), "public": asyncio.Lock()}
+        self._source_refreshed_at: dict[str, float] = {}
         # camera_id -> unix time before which we won't chase a live token again
         self._token_retry_after: dict[str, float] = {}
 
@@ -241,6 +251,14 @@ class UcamsApi:
     async def get_cameras_info(self) -> dict:
         """Fetch the camera list from dom /api/v1/cctv (one round-trip, no pagination)."""
         cctv = await self._ufanet_api.get_cctv_list()
+        if not cctv and self.cameras:
+            # Seen during a Ufanet outage: 200 with `[]`. Dropping every camera
+            # over it would kill all streams until the next reload.
+            _LOGGER.warning(
+                "dom /api/v1/cctv returned an empty camera list; keeping the %s known cameras",
+                len(self.cameras),
+            )
+            return self.cameras
         self.cameras = {}
         for cam in cctv:
             entry = self._build_camera_entry(cam, cam.get("servers") or {})
@@ -410,11 +428,25 @@ class UcamsApi:
         return self.cameras.get(camera_id)
 
     async def _refresh_camera_source(self, camera_id: str) -> None:
-        """Re-fetch whichever list the camera came from."""
-        if camera_id in self.public_cameras:
-            await self._refresh_public_tokens()
-        else:
-            await self.get_cameras_info()
+        """Re-fetch whichever list the camera came from, at most once per window.
+
+        Concurrent callers queue on the lock and then find the refresh already
+        done. A failed attempt counts too, so a 429 isn't retried by every
+        waiting camera in turn.
+        """
+        source = "public" if camera_id in self.public_cameras else "contract"
+        async with self._source_locks[source]:
+            last = self._source_refreshed_at.get(source, 0)
+            if time() - last < SOURCE_REFRESH_MIN_INTERVAL:
+                _LOGGER.debug("Camera %s: %s list was refreshed just now", camera_id, source)
+                return
+            try:
+                if source == "public":
+                    await self._refresh_public_tokens()
+                else:
+                    await self.get_cameras_info()
+            finally:
+                self._source_refreshed_at[source] = time()
 
     def _token_is_fresh(self, token: str | None) -> bool:
         """True when `token` still has more than the refresh buffer left on it."""

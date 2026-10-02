@@ -7,11 +7,17 @@ from pathlib import Path
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ENTITY_ID, Platform
-from homeassistant.core import HomeAssistant, ServiceResponse, SupportsResponse
-from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.core import HomeAssistant, ServiceResponse, SupportsResponse, callback
+from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
+    ConfigEntryNotReady,
+    HomeAssistantError,
+)
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.typing import ConfigType
 
 from .coordinator import async_refresh_for_call, build_call_history_coordinator
@@ -50,6 +56,9 @@ ASSETS_PATH = Path(__file__).parent / "assets"
 NO_SNAPSHOT_PATH = ASSETS_PATH / "no_snapshot.png"
 # hass.data key guarding the one-per-HA-run static route registration.
 STATIC_ASSETS_REGISTERED = f"{DOMAIN}_static_assets"
+# A failed city-camera load leaves those entities unavailable; the entry is
+# reloaded after this long to pick them up once cams_server is back.
+PUBLIC_CAMERAS_RETRY_DELAY = 600
 
 DATA_SCHEMA = {
     vol.Required(CONF_NAME, default="Ucams"): str,
@@ -121,6 +130,13 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     # let those propagate so HA shows a real error to the user instead of a
     # silent setup failure.
     cameras_info = await cameras_api.get_cameras_info()
+    if not cameras_info and _had_contract_cameras(hass, config_entry):
+        # Ufanet answers `[]` (HTTP 200) during outages. Taken at face value it
+        # leaves every camera unavailable until a manual reload; NotReady makes
+        # HA retry with backoff instead.
+        await cameras_api.close()
+        await ufanet_api.close()
+        raise ConfigEntryNotReady("Ufanet returned an empty camera list")
     public_cameras_info = await _async_load_public_cameras(hass, config_entry, cameras_api)
     hass.data[config_entry.entry_id] = {
         "cameras_api": cameras_api,
@@ -213,8 +229,31 @@ async def _async_load_public_cameras(
         # Credentials going bad is a real failure — HA must start reauth.
         raise
     except Exception as err:
-        _LOGGER.warning("Failed to load public city cameras: %s", err)
+        _LOGGER.warning(
+            "Failed to load public city cameras: %s. Reloading the entry in %s sec to retry.",
+            err,
+            PUBLIC_CAMERAS_RETRY_DELAY,
+        )
+
+        @callback
+        def _retry(_now) -> None:
+            hass.config_entries.async_schedule_reload(config_entry.entry_id)
+
+        config_entry.async_on_unload(async_call_later(hass, PUBLIC_CAMERAS_RETRY_DELAY, _retry))
         return {}
+
+
+def _had_contract_cameras(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """True when an earlier run of this entry created contract cameras.
+
+    Archive buttons only exist for contract cameras (city ones have no
+    archive), so they tell "the account really has none" apart from "the API
+    came back empty this time".
+    """
+    return any(
+        entry.domain == "button"
+        for entry in er.async_entries_for_config_entry(er.async_get(hass), config_entry.entry_id)
+    )
 
 
 def _assign_areas_by_address(
