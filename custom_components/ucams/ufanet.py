@@ -257,7 +257,7 @@ class DomApi:
         still required for archive (only it issues token_d).
         """
         session = await self.get_authenticated_session()
-        url = urljoin(self.base_url, "api/v1/cctv")
+        url = urljoin(self.base_url, "api/v1/cctv/")
         async with session.get(url) as resp:
             resp.raise_for_status()
             return await resp.json()
