@@ -104,3 +104,49 @@ async def test_failed_public_cameras_schedule_a_reload(config_entry, monkeypatch
     config_entry.async_on_unload.assert_called_once_with(call_later.return_value)
     retry(None)
     hass.config_entries.async_schedule_reload.assert_called_once_with(config_entry.entry_id)
+
+
+def test_assign_areas_keeps_the_users_choice(monkeypatch):
+    """Runs on every setup — must not move a device the user already put somewhere (#17)."""
+    entry = SimpleNamespace(entry_id="1")
+    placed = SimpleNamespace(id="d1", identifiers={("ucams", "1_cam1")}, area_id="kitchen")
+    unplaced = SimpleNamespace(id="d2", identifiers={("ucams", "1_cam2")}, area_id=None)
+    area_reg = MagicMock()
+    area_reg.async_get_area_by_name.return_value = None
+    area_reg.async_get_or_create.return_value = SimpleNamespace(id="lenina_1")
+    dev_reg = MagicMock()
+    monkeypatch.setattr(ucams_init.ar, "async_get", MagicMock(return_value=area_reg))
+    monkeypatch.setattr(ucams_init.dr, "async_get", MagicMock(return_value=dev_reg))
+    monkeypatch.setattr(
+        ucams_init.dr,
+        "async_entries_for_config_entry",
+        MagicMock(return_value=[placed, unplaced]),
+    )
+    cameras = {
+        "cam1": {"address": "г. Уфа, Ленина, 1"},
+        "cam2": {"address": "г. Уфа, Ленина, 1"},
+    }
+
+    ucams_init._assign_areas_by_address(MagicMock(), entry, cameras)
+
+    dev_reg.async_update_device.assert_called_once_with("d2", area_id="lenina_1")
+    area_reg.async_get_or_create.assert_called_once()
+
+
+def test_assign_areas_creates_no_area_when_every_device_is_placed(monkeypatch):
+    """A deleted address area must not come back if nothing would go into it."""
+    entry = SimpleNamespace(entry_id="1")
+    placed = SimpleNamespace(id="d1", identifiers={("ucams", "1_cam1")}, area_id="kitchen")
+    area_reg = MagicMock()
+    area_reg.async_get_area_by_name.return_value = None
+    monkeypatch.setattr(ucams_init.ar, "async_get", MagicMock(return_value=area_reg))
+    monkeypatch.setattr(ucams_init.dr, "async_get", MagicMock())
+    monkeypatch.setattr(
+        ucams_init.dr, "async_entries_for_config_entry", MagicMock(return_value=[placed])
+    )
+
+    ucams_init._assign_areas_by_address(
+        MagicMock(), entry, {"cam1": {"address": "г. Уфа, Ленина, 1"}}
+    )
+
+    area_reg.async_get_or_create.assert_not_called()

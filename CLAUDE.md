@@ -145,7 +145,7 @@ truth (`push.data.uuid` ≠ history uuid; only `time` == `called_at`).
   `camera_marker.svg` / `camera_marker_public.svg`. `StaticPathConfig` is
   imported inside that function: it doesn't exist on the HA 2024.4.4 minimum
   `hacs.json` declares, which is also what the dev venv pins.
-- **`parse_house_area`** strips `"г. <city>, "` prefix and `", п.<n>"` porch suffix from Ufanet addresses, yielding a `"Street, House"` HA area name. Areas are force-assigned post-setup in `_assign_areas_by_address` because `suggested_area` only fires on a device's first registration.
+- **`parse_house_area`** strips `"г. <city>, "` prefix and `", п.<n>"` porch suffix from Ufanet addresses, yielding a `"Street, House"` HA area name. Areas are assigned post-setup in `_assign_areas_by_address` because `suggested_area` only fires on a device's first registration — but **only to devices with no area yet**: it runs on every setup, so overriding would undo the user's own placement on each restart (issue #17).
 - **The legacy `cams_server/api/v0/cameras/my/` endpoint** (no longer used on the read path) strictly validates its `fields` array — `"house"` returned HTTP 400, which is why addresses are parsed locally. If you ever re-add that endpoint, every new field needs verifying in isolation before shipping.
 - **Hard-to-reverse / setup-time decisions live in `__init__.py`'s docstrings/comments**; trust those over the wider HA docs when they conflict.
 

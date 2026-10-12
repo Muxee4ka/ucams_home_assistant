@@ -259,11 +259,14 @@ def _had_contract_cameras(hass: HomeAssistant, config_entry: ConfigEntry) -> boo
 def _assign_areas_by_address(
     hass: HomeAssistant, config_entry: ConfigEntry, cameras_info: dict
 ) -> None:
-    """Group existing devices by parsed street+house and force-assign areas.
+    """Put devices that have no area yet into the area named after their address.
 
     `suggested_area` only fires on first device registration, which doesn't
     help users who already have N devices registered without an area. This
-    walks the device registry and pins them to the right area name.
+    walks the device registry and fills the gaps. A device that already has an
+    area is left alone: it runs on every setup, so overriding the user's choice
+    would undo it (and re-create a deleted area) on each HA restart — issue #17.
+    The area itself is only created when a device actually goes into it.
     """
     area_reg = ar.async_get(hass)
     dev_reg = dr.async_get(hass)
@@ -282,11 +285,10 @@ def _assign_areas_by_address(
         if not area_name:
             continue
         device = devices.get((DOMAIN, f"{config_entry.entry_id}_{camera_id}"))
-        if device is None:
+        if device is None or device.area_id is not None:
             continue
         area = area_reg.async_get_area_by_name(area_name) or area_reg.async_get_or_create(area_name)
-        if device.area_id != area.id:
-            dev_reg.async_update_device(device.id, area_id=area.id)
+        dev_reg.async_update_device(device.id, area_id=area.id)
 
 
 async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
