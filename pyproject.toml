@@ -25,7 +25,11 @@ runtime = [
     "firebase-messaging>=0.4.0",
 ]
 dev = [
-    "homeassistant",
+    # Newest HA release each Python still supports. Unpinned, pip backtracks
+    # through hundreds of HA / pytest-homeassistant-custom-component releases
+    # and dies building numpy 1.23 from source (CI broke that way 2026-10-12).
+    "homeassistant==2025.1.4; python_version < '3.13'",
+    "homeassistant==2026.2.3; python_version >= '3.13'",
     "firebase-messaging>=0.4.0",
     "aiohttp",
     "pytest",
