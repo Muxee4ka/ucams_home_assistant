@@ -1,13 +1,18 @@
 """Tests for the opt-in FCM push path and the call event it speeds up."""
 
 import asyncio
+import base64
 import logging
+import os
 from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import http_ece
 import pytest
 from aioresponses import aioresponses
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from homeassistant.util import dt as dt_util
 
 from custom_components.ucams import coordinator as coordinator_mod
@@ -224,3 +229,68 @@ def _read_error_record(exc):
 )
 def test_routine_mcs_disconnects_are_muted(exc, kept):
     assert push_mod._DropRoutineDisconnects().filter(_read_error_record(exc)) is kept
+
+
+def _b64(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+@pytest.mark.parametrize(
+    ("crypto_key", "encryption"),
+    [
+        ("dh={dh}", "salt={salt}"),
+        ("dh={dh};p256ecdsa={ecdsa}", "salt={salt}"),
+        ("p256ecdsa={ecdsa}; dh={dh}", "salt={salt};rs=4096"),
+    ],
+)
+def test_push_client_decrypts_multi_param_unpadded_headers(crypto_key, encryption):
+    """Upstream sliced `dh=`/`salt=` off by position and died on these (#40, #44)."""
+    receiver = ec.generate_private_key(ec.SECP256R1())
+    sender = ec.generate_private_key(ec.SECP256R1())
+    auth_secret, salt = os.urandom(16), os.urandom(16)
+    raw = http_ece.encrypt(
+        b'{"data": {"reason": "sip"}}',
+        salt=salt,
+        private_key=sender,
+        dh=receiver.public_key().public_bytes(
+            serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint
+        ),
+        auth_secret=auth_secret,
+        version="aesgcm",
+    )
+    sender_pub = sender.public_key().public_bytes(
+        serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint
+    )
+    fields = {"dh": _b64(sender_pub), "salt": _b64(salt), "ecdsa": _b64(b"\x04" * 65)}
+    msg = SimpleNamespace(
+        app_data=[
+            SimpleNamespace(key="crypto-key", value=crypto_key.format(**fields)),
+            SimpleNamespace(key="encryption", value=encryption.format(**fields)),
+            SimpleNamespace(key="subtype", value="app"),
+        ],
+        raw_data=raw,
+        persistent_id="pid",
+        stream_id=1,
+        last_stream_id_received=0,
+        status=0,
+    )
+    callback = MagicMock()
+    client = push_mod._FcmPushClient(callback, MagicMock())
+    client.credentials = {
+        "gcm": {"app_id": "app"},
+        "keys": {
+            "private": _b64(
+                receiver.private_bytes(
+                    serialization.Encoding.DER,
+                    serialization.PrivateFormat.PKCS8,
+                    serialization.NoEncryption(),
+                )
+            ),
+            "secret": _b64(auth_secret),
+        },
+    }
+
+    client._handle_data_message(msg)
+
+    callback.assert_called_once()
+    assert callback.call_args.args[:2] == ({"data": {"reason": "sip"}}, "pid")

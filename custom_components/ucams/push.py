@@ -54,6 +54,9 @@ RETRY_DELAYS = (10, 30, 60, 300, 900, 1800)
 WATCHDOG_INTERVAL = 60
 SAVE_DELAY = 10
 
+# app_data header -> the one parameter of it the library wants.
+_WEBPUSH_PARAMS = {"crypto-key": "dh", "encryption": "salt"}
+
 OnCall = Callable[[datetime | None], Awaitable[None]]
 
 
@@ -76,6 +79,32 @@ class _DropRoutineDisconnects(logging.Filter):
 
 
 logging.getLogger("firebase_messaging.fcmpushclient").addFilter(_DropRoutineDisconnects())
+
+
+class _FcmPushClient(FcmPushClient):
+    """`FcmPushClient` that survives multi-parameter / unpadded Web Push headers.
+
+    `Crypto-Key` and `Encryption` are parameter lists in any order (RFC 8188,
+    RFC 8291); VAPID-signed pushes carry `dh=<key>; p256ecdsa=<vapid>`. The
+    library takes `crypto-key[3:]` and `encryption[5:]` by position and
+    base64-decodes the rest as is. Such a header, or base64 without `=`
+    padding, raises `binascii.Error` before the push is acked, so Google
+    redelivers it on every reconnect and the client dies again
+    (sdb9696/firebase-messaging#40, #44). Hand it back just `dh=`/`salt=` with
+    padding restored; well-formed headers come out unchanged.
+    """
+
+    def _app_data_by_key(self, p: Any, key: str, do_not_raise: bool = False) -> str:
+        value = super()._app_data_by_key(p, key, do_not_raise)
+        param = _WEBPUSH_PARAMS.get(key)
+        if not param or not value:
+            return value
+        for part in value.replace(",", ";").split(";"):
+            name, _, encoded = part.strip().partition("=")
+            if name.strip() == param:
+                encoded = encoded.strip().rstrip("=")
+                return f"{param}={encoded}{'=' * (-len(encoded) % 4)}"
+        return value
 
 
 def _store(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
@@ -165,7 +194,7 @@ class PushListener:
             bundle_id=PHONE_APPLICATION_ID,
             persistend_ids=list(self._state["persistent_ids"]),
         )
-        client = FcmPushClient(
+        client = _FcmPushClient(
             self._handle_push,
             config,
             credentials=self._state.get("credentials"),
