@@ -6,7 +6,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from custom_components.ucams.ucams import disambiguate_titles, filter_public_cameras
+from custom_components.ucams.ucams import (
+    BARRIER_FIELDS,
+    disambiguate_titles,
+    filter_public_cameras,
+)
 
 LIVE_TOKEN = (
     "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9."
@@ -463,3 +467,93 @@ async def test_empty_cctv_list_keeps_known_cameras(ucams_api, mock_ufanet_api):
     cameras = await ucams_api.get_cameras_info()
 
     assert list(cameras) == [CCTV_FAKE_ITEM["number"]]
+
+
+BARRIER_FAKE_ROW = {
+    "id": 42,
+    "ident": "BP-42",
+    "title": "Шлагбаум во дворе",
+    "is_active": True,
+    "camera_numbers": ["1712127689UPE47"],
+    "module_ids": [7],
+    "emergency_vehicle_access": False,
+}
+
+
+@pytest.mark.asyncio
+async def test_get_barriers_pages_until_empty(ucams_api):
+    """The devices endpoint is paged until it hands back an empty page."""
+    second = {**BARRIER_FAKE_ROW, "id": 43, "title": "Второй шлагбаум"}
+    calls = _attach_cams_session(
+        ucams_api,
+        [
+            {"count": 2, "results": [BARRIER_FAKE_ROW, second]},
+            {"count": 2, "results": []},
+        ],
+    )
+
+    barriers = await ucams_api.get_barriers()
+
+    assert [b["id"] for b in barriers] == [42, 43]
+    url, payload = calls[0]
+    assert url == "https://cams.example.com/api/v0/devices/"
+    assert payload["fields"] == BARRIER_FIELDS
+    assert payload["extra"] == ["camera", "module"]
+    assert [payload["page"] for _, payload in calls] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_get_barriers_maps_camel_case_rows(ucams_api):
+    """The app's Gson model is camelCase — rows in that shape map the same."""
+    row = {
+        "id": 9,
+        "title": "Шлагбаум",
+        "isActive": False,
+        "cameraNumbers": ["CAM1"],
+        "moduleIds": [3, 4],
+        "emergencyVehicleAccess": True,
+    }
+    _attach_cams_session(ucams_api, [{"results": [row]}, {"results": []}])
+
+    (barrier,) = await ucams_api.get_barriers()
+
+    assert barrier == {
+        "id": 9,
+        "title": "Шлагбаум",
+        "is_active": False,
+        "camera_numbers": ["CAM1"],
+        "module_ids": [3, 4],
+        "emergency_vehicle_access": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_get_barriers_empty_account(ucams_api):
+    """An account without barriers gets an empty list, not an extra page loop."""
+    calls = _attach_cams_session(ucams_api, [{"count": 0, "results": []}])
+
+    assert await ucams_api.get_barriers() == []
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_open_barrier_without_module_id(ucams_api):
+    """Single-module devices get the app's DEVICE-wide command: no module_id."""
+    calls = _attach_cams_session(ucams_api, [{"ok": True}])
+
+    await ucams_api.open_barrier(42)
+
+    url, payload = calls[0]
+    assert url == "https://cams.example.com/api/v0/devices/cmd/"
+    assert payload == {"device_id": 42, "action": "open", "payload": {}}
+
+
+@pytest.mark.asyncio
+async def test_open_barrier_with_module_id(ucams_api):
+    """Multi-module devices carry the module in the command payload."""
+    calls = _attach_cams_session(ucams_api, [{"ok": True}])
+
+    await ucams_api.open_barrier(42, 7)
+
+    _, payload = calls[0]
+    assert payload == {"device_id": 42, "action": "open", "payload": {"module_id": 7}}
