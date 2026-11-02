@@ -468,14 +468,16 @@ class UcamsApi:
     async def open_barrier(self, device_id, module_id=None) -> dict:
         """Open a barrier; mirrors the app's NetworkHelper.openBarrier.
 
-        `module_id` goes into the payload only when the device has several
-        openers — with a single module the app sends the command device-wide
-        (its DEVICE vs MODULE command enum), and we copy that.
+        `module_id` is nullable and the key is always sent — the app puts
+        `module_id: null` into the payload for device-wide commands (its
+        DEVICE vs MODULE command enum), and we copy that byte for byte.
         """
         session = await self._ensure_cams_session()
-        payload: dict = {"device_id": device_id, "action": "open", "payload": {}}
-        if module_id is not None:
-            payload["payload"]["module_id"] = module_id
+        payload: dict = {
+            "device_id": device_id,
+            "action": "open",
+            "payload": {"module_id": module_id},
+        }
         data = await self._post_cams_json(
             session, f"{self.cams_server}/api/v0/devices/cmd/", payload
         )

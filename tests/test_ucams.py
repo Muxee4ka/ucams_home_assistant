@@ -538,14 +538,14 @@ async def test_get_barriers_empty_account(ucams_api):
 
 @pytest.mark.asyncio
 async def test_open_barrier_without_module_id(ucams_api):
-    """Single-module devices get the app's DEVICE-wide command: no module_id."""
+    """Single-module devices get the app's DEVICE-wide command: module_id null."""
     calls = _attach_cams_session(ucams_api, [{"ok": True}])
 
     await ucams_api.open_barrier(42)
 
     url, payload = calls[0]
     assert url == "https://cams.example.com/api/v0/devices/cmd/"
-    assert payload == {"device_id": 42, "action": "open", "payload": {}}
+    assert payload == {"device_id": 42, "action": "open", "payload": {"module_id": None}}
 
 
 @pytest.mark.asyncio
