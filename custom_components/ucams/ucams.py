@@ -38,6 +38,12 @@ HEADERS = {
 # values are rejected outright, the default is 3600.
 TOKEN_L_TTL = 86400
 PUBLIC_PAGE_SIZE = 200
+# Barriers ("Устройства" in the app) — reverse-engineered from the «Мой умный
+# дом» APK (NetworkHelper.loadBarriers): paged POST /api/v0/devices/, camelCase
+# rows in the app's Gson model. The live API's exact key casing is unverified,
+# so mapping accepts both camel and snake.
+BARRIER_FIELDS = ["id", "ident", "title", "is_active", "camera_numbers"]
+BARRIER_MAX_PAGES = 50
 CAMERA_FIELDS = [
     "number",
     "title",
@@ -386,18 +392,95 @@ class UcamsApi:
             if entry:
                 self.cameras[entry["id"]] = entry
 
-    async def _post_cams(self, session: ClientSession, endpoint: str, payload: dict) -> dict:
-        """POST to cams_server, re-authenticating once on a 401."""
-        url = f"{self.cams_server}/api/v0/cameras/{endpoint}/"
+    async def _post_cams_json(self, session: ClientSession, url: str, payload: dict) -> dict:
+        """POST JSON to cams_server, re-authenticating once on a 401."""
         for attempt in range(2):
             async with session.post(url, params={"lang": "ru"}, json=payload) as resp:
                 if resp.status == 401 and attempt == 0:
-                    _LOGGER.debug("Cams auth expired on %s, re-authenticating", endpoint)
+                    _LOGGER.debug("Cams auth expired on %s, re-authenticating", url)
                     await self._authenticate_cams()
                     continue
                 resp.raise_for_status()
                 return await resp.json()
         return {}
+
+    async def _post_cams(self, session: ClientSession, endpoint: str, payload: dict) -> dict:
+        url = f"{self.cams_server}/api/v0/cameras/{endpoint}/"
+        return await self._post_cams_json(session, url, payload)
+
+    @staticmethod
+    def _build_barrier_entry(row: dict) -> dict:
+        """Normalize one /api/v0/devices/ row into what switch.py consumes.
+
+        The app's Gson model is camelCase (`isActive`, `cameraNumbers`,
+        `moduleIds`) but the live response hasn't been seen yet — accept both
+        casings so a snake_case server answer maps just the same.
+        """
+
+        def pick(*keys, default=None):
+            for key in keys:
+                if row.get(key) is not None:
+                    return row[key]
+            return default
+
+        return {
+            "id": pick("id"),
+            "title": pick("title") or "",
+            "is_active": pick("is_active", "isActive", default=True),
+            "camera_numbers": pick("camera_numbers", "cameraNumbers", default=[]),
+            "module_ids": pick("module_ids", "moduleIds", default=[]),
+            "emergency_vehicle_access": pick(
+                "emergency_vehicle_access", "emergencyVehicleAccess", default=False
+            ),
+        }
+
+    async def get_barriers(self) -> list[dict]:
+        """Fetch the account's barriers (шлагбаумы) from cams_server.
+
+        Same `devices` the app shows on its «Шлагбаумы» screen. Pages are
+        walked until the API hands back an empty page — `page.all` is not part
+        of this endpoint's answer shape (verified against the app's own paging
+        loop), so an empty result is the only reliable stop signal.
+        """
+        session = await self._ensure_cams_session()
+        barriers: list[dict] = []
+        page = 1
+        while page <= BARRIER_MAX_PAGES:
+            data = await self._post_cams_json(
+                session,
+                f"{self.cams_server}/api/v0/devices/",
+                {"fields": BARRIER_FIELDS, "extra": ["camera", "module"], "page": page},
+            )
+            results = data.get("results") or []
+            barriers.extend(self._build_barrier_entry(row) for row in results)
+            if not results:
+                break
+            page += 1
+        else:
+            _LOGGER.warning(
+                "Barrier list did not end within %s pages — keeping the %s collected so far",
+                BARRIER_MAX_PAGES,
+                len(barriers),
+            )
+        _LOGGER.info("Barriers: %s found", len(barriers))
+        return barriers
+
+    async def open_barrier(self, device_id, module_id=None) -> dict:
+        """Open a barrier; mirrors the app's NetworkHelper.openBarrier.
+
+        `module_id` goes into the payload only when the device has several
+        openers — with a single module the app sends the command device-wide
+        (its DEVICE vs MODULE command enum), and we copy that.
+        """
+        session = await self._ensure_cams_session()
+        payload: dict = {"device_id": device_id, "action": "open", "payload": {}}
+        if module_id is not None:
+            payload["payload"]["module_id"] = module_id
+        data = await self._post_cams_json(
+            session, f"{self.cams_server}/api/v0/devices/cmd/", payload
+        )
+        _LOGGER.debug("Barrier %s open response: %s", device_id, data)
+        return data
 
     def build_device_name(self, device_title) -> str:
         device_name = device_title.lower()

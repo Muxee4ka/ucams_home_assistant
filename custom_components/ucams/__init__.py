@@ -138,6 +138,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         await ufanet_api.close()
         raise ConfigEntryNotReady("Ufanet returned an empty camera list")
     public_cameras_info = await _async_load_public_cameras(hass, config_entry, cameras_api)
+    barriers_info = await _async_load_barriers(cameras_api)
     hass.data[config_entry.entry_id] = {
         "cameras_api": cameras_api,
         "dom_api": ufanet_api,
@@ -145,6 +146,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         # City cameras stay in their own bag: only camera/image/geo_location
         # read it, so archive buttons and area assignment can't pick them up.
         "public_cameras_info": public_cameras_info,
+        "barriers_info": barriers_info,
     }
     # Owned here, not by a platform: sensor and event both read it and HA sets
     # platforms up concurrently.
@@ -241,6 +243,23 @@ async def _async_load_public_cameras(
 
         config_entry.async_on_unload(async_call_later(hass, PUBLIC_CAMERAS_RETRY_DELAY, _retry))
         return {}
+
+
+async def _async_load_barriers(cameras_api: UcamsApi) -> list[dict]:
+    """Discover the account's barriers (шлагбаумы) on cams_server.
+
+    Deliberately non-fatal like the city cameras: barriers are one more bonus
+    on top of the user's own cameras, and accounts without any must see no
+    difference at all — so a failure here logs and yields an empty list
+    instead of taking the entry down.
+    """
+    try:
+        return await cameras_api.get_barriers()
+    except ConfigEntryAuthFailed:
+        raise
+    except Exception as err:
+        _LOGGER.warning("Failed to load barriers: %s", err)
+        return []
 
 
 def _had_contract_cameras(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
