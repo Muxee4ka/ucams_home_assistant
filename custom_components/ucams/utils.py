@@ -160,7 +160,7 @@ def build_object_id(device_name: str, suffix: str | int | None) -> str:
 def decode_token(token: str | None) -> dict:
     """Decode a JWT payload without verifying the signature.
 
-    Falls back to manually base64-decoding the first segment when PyJWT can't
+    Falls back to manually base64-decoding the claims segment when PyJWT can't
     parse the token (some Ufanet endpoints hand back non-standard tokens).
     Returns `{}` for a missing token: `/api/v1/cctv` does occasionally hand
     back `token_l: null`, and callers treat an empty payload as "no expiry".
@@ -174,7 +174,12 @@ def decode_token(token: str | None) -> dict:
         pass
 
     try:
-        payload = token.split(".")[0]
+        segments = token.split(".")
+        # A full header.payload.signature JWT keeps its claims in the middle:
+        # PyJWT >= 2.10 rejects a badly padded signature even when verification
+        # is off, and decoding the header then would lose `exp`. The odd
+        # Ufanet tokens are "<payload>.<junk>" — claims first.
+        payload = segments[1] if len(segments) == 3 else segments[0]
         # base64 decode tolerant of missing padding
         payload += "=" * (-len(payload) % 4)
         return json.loads(base64.urlsafe_b64decode(payload).decode())
