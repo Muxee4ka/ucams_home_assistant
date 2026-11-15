@@ -141,6 +141,14 @@ truth (`push.data.uuid` ≠ history uuid; only `time` == `called_at`).
   config entry minor version 1.2, `async_migrate_entry` renames old ones in
   place). Unprefixed, two accounts that see the same camera collided and HA
   dropped the second account's entities.
+- **A camera two accounts share is shown by one entry only**
+  (`_cameras_owned_elsewhere`): the active entry whose camera entity was
+  registered first (`created_at`, then entry order). Others filter it out of
+  their `cameras_info` / `public_cameras_info` bags and remove their own
+  per-camera entities + emptied devices (`_remove_camera_entities`). Without
+  this, scoped unique_ids doubled every shared camera (84 cameras / 588
+  entities on the maintainer's install). Intercom entities are per account
+  and never deduplicated.
 - **`short_address` vs `parse_house_area`.** `parse_house_area` (area names) only
   strips a dotted `"г. <city>, "` prefix; `/api/v1/cctv` and the public list both
   return the undotted `"г <city>, "` form, which it leaves alone — changing that
