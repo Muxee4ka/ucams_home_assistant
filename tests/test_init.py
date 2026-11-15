@@ -150,3 +150,32 @@ def test_assign_areas_creates_no_area_when_every_device_is_placed(monkeypatch):
     )
 
     area_reg.async_get_or_create.assert_not_called()
+
+
+def test_assign_areas_puts_a_barrier_next_to_its_camera(monkeypatch):
+    """A barrier has no address — it follows the first of its cameras, wherever
+    the user placed that camera. Barriers the user placed stay put."""
+    entry = SimpleNamespace(entry_id="1")
+    camera = SimpleNamespace(id="d1", identifiers={("ucams", "1_cam1")}, area_id="yard")
+    barrier = SimpleNamespace(id="b1", identifiers={("ucams", "1_barrier_42")}, area_id=None)
+    placed_barrier = SimpleNamespace(id="b2", identifiers={("ucams", "1_barrier_43")}, area_id="x")
+    lonely_barrier = SimpleNamespace(id="b3", identifiers={("ucams", "1_barrier_44")}, area_id=None)
+    dev_reg = MagicMock()
+    monkeypatch.setattr(ucams_init.ar, "async_get", MagicMock())
+    monkeypatch.setattr(ucams_init.dr, "async_get", MagicMock(return_value=dev_reg))
+    monkeypatch.setattr(
+        ucams_init.dr,
+        "async_entries_for_config_entry",
+        MagicMock(return_value=[camera, barrier, placed_barrier, lonely_barrier]),
+    )
+    barriers = [
+        {"id": 42, "camera_numbers": ["unknown", "cam1"]},
+        {"id": 43, "camera_numbers": ["cam1"]},
+        {"id": 44, "camera_numbers": []},
+    ]
+
+    ucams_init._assign_areas_by_address(
+        MagicMock(), entry, {"cam1": {"address": "г. Уфа, Ленина, 1"}}, barriers
+    )
+
+    dev_reg.async_update_device.assert_called_once_with("b1", area_id="yard")

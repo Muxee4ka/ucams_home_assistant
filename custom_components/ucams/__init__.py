@@ -185,7 +185,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     await _async_register_static_assets(hass)
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
     await _async_setup_push(hass, config_entry, ufanet_api, coordinator)
-    _assign_areas_by_address(hass, config_entry, cameras_info)
+    _assign_areas_by_address(hass, config_entry, cameras_info, barriers_info)
     _async_register_services(hass)
     # Options decide which entities exist (city-camera filters especially), so
     # they only take effect on a reload — do it for the user.
@@ -305,7 +305,10 @@ def _had_contract_cameras(hass: HomeAssistant, config_entry: ConfigEntry) -> boo
 
 
 def _assign_areas_by_address(
-    hass: HomeAssistant, config_entry: ConfigEntry, cameras_info: dict
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    cameras_info: dict,
+    barriers_info: list[dict] | None = None,
 ) -> None:
     """Put devices that have no area yet into the area named after their address.
 
@@ -315,6 +318,10 @@ def _assign_areas_by_address(
     area is left alone: it runs on every setup, so overriding the user's choice
     would undo it (and re-create a deleted area) on each HA restart — issue #17.
     The area itself is only created when a device actually goes into it.
+
+    A barrier has no address of its own, only the cameras watching it
+    (`camera_numbers`): it goes where the first of those cameras is — the
+    user's placement of that camera included.
     """
     area_reg = ar.async_get(hass)
     dev_reg = dr.async_get(hass)
@@ -328,15 +335,35 @@ def _assign_areas_by_address(
         for device in dr.async_entries_for_config_entry(dev_reg, config_entry.entry_id)
         for identifier in device.identifiers
     }
+    camera_areas: dict[str, str] = {}
     for camera_id, cam in cameras_info.items():
+        device = devices.get((DOMAIN, f"{config_entry.entry_id}_{camera_id}"))
+        if device is None:
+            continue
+        if device.area_id is not None:
+            camera_areas[str(camera_id)] = device.area_id
+            continue
         area_name = parse_house_area(cam.get("address"))
         if not area_name:
             continue
-        device = devices.get((DOMAIN, f"{config_entry.entry_id}_{camera_id}"))
-        if device is None or device.area_id is not None:
-            continue
         area = area_reg.async_get_area_by_name(area_name) or area_reg.async_get_or_create(area_name)
         dev_reg.async_update_device(device.id, area_id=area.id)
+        camera_areas[str(camera_id)] = area.id
+
+    for barrier in barriers_info or []:
+        device = devices.get((DOMAIN, f"{config_entry.entry_id}_barrier_{barrier['id']}"))
+        if device is None or device.area_id is not None:
+            continue
+        area_id = next(
+            (
+                camera_areas[str(number)]
+                for number in barrier.get("camera_numbers") or []
+                if str(number) in camera_areas
+            ),
+            None,
+        )
+        if area_id is not None:
+            dev_reg.async_update_device(device.id, area_id=area_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
