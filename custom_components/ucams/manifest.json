@@ -1,6 +1,11 @@
 {
     "domain": "ucams",
     "name": "Ucams",
+    "categories": [
+        "security_safety.cameras",
+        "security_safety.doorbells_intercoms",
+        "security_safety.locks_access"
+    ],
     "codeowners": ["@Muxee4ka"],
     "config_flow": true,
     "dependencies": ["http"],
