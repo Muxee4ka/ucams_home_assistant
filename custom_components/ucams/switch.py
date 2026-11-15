@@ -9,7 +9,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 
 from .ucams import UcamsApi
 from .ufanet import DomApi
-from .utils import DOMAIN, build_object_id, parse_house_area
+from .utils import DOMAIN, build_object_id, parse_house_area, scoped_unique_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +36,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 
 class DomUfanetSwitchEntity(SwitchEntity):
+    _attr_has_entity_name = True
+    _attr_translation_key = "door"
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -53,18 +56,16 @@ class DomUfanetSwitchEntity(SwitchEntity):
         self.dom_api = dom_api
         self.skud_id = skud_info["id"]
         self.camera_id = skud_info.get("cctv_number")  # may be None
-        if camera_info:
-            self.device_name = self.cameras_api.build_device_name(camera_info["title"])
-        else:
-            self.device_name = self.cameras_api.build_device_name(
-                skud_info["string_view"] + "_" + str(self.skud_id)
-            )
+        # device_name stays the transliterated slug source: it is also what the
+        # `ucams_door_opened` event has always carried.
+        self.device_name, self._device_title = cameras_api.build_skud_device_names(
+            skud_info, camera_info
+        )
         # Prefer the camera's address (richer); fall back to the skud's string_view.
         self._address = (camera_info or {}).get("address") or skud_info.get("string_view")
         self._suggested_area = parse_house_area(self._address)
         self.entity_id = f"switch.{build_object_id(self.device_name, self.skud_id)}"
-        self._attr_unique_id = f"switch-{self.skud_id}"
-        self._attr_name = self.device_name
+        self._attr_unique_id = scoped_unique_id(self.config_entry_id, f"switch-{self.skud_id}")
         self._attr_icon = "mdi:door-open"
         self._attr_is_on = False
         self.time_out = skud_info["timeout"]
@@ -119,7 +120,7 @@ class DomUfanetSwitchEntity(SwitchEntity):
                     f"{self.config_entry_id}_{self.camera_id if self.camera_id else self.skud_id}",
                 )
             },
-            "name": self.device_name,
+            "name": self._device_title,
             "manufacturer": "Ufanet",
         }
         if self._suggested_area:
@@ -134,6 +135,10 @@ class UcamsBarrierSwitchEntity(SwitchEntity):
     there is no upstream-defined hold time: the entity pulses on for
     `BARRIER_AUTO_OFF_DELAY` and drops back.
     """
+
+    _attr_has_entity_name = True
+    # The barrier is its own device; the switch is that device.
+    _attr_name = None
 
     def __init__(
         self,
@@ -151,10 +156,10 @@ class UcamsBarrierSwitchEntity(SwitchEntity):
         self._multi_module_warned = False
 
         title = barrier_info.get("title") or f"Шлагбаум {self.barrier_id}"
-        # Device/entity name carries the raw Russian title (same convention as
-        # city cameras); the transliterated form only feeds the entity_id slug.
-        self._attr_name = title
-        self._attr_unique_id = f"barrier-{self.barrier_id}"
+        # The device carries the raw Russian title (same convention as cameras);
+        # the transliterated form only feeds the entity_id slug.
+        self._title = title
+        self._attr_unique_id = scoped_unique_id(self.config_entry_id, f"barrier-{self.barrier_id}")
         self.entity_id = (
             f"switch.{build_object_id(cameras_api.build_device_name(title), self.barrier_id)}"
         )
@@ -190,7 +195,7 @@ class UcamsBarrierSwitchEntity(SwitchEntity):
                 "entity_id": self.entity_id,
                 "barrier_id": self.barrier_id,
                 "module_id": module_id,
-                "device_name": self._attr_name,
+                "device_name": self._title,
             },
         )
         self._attr_is_on = True
@@ -223,7 +228,7 @@ class UcamsBarrierSwitchEntity(SwitchEntity):
     def device_info(self) -> DeviceInfo:
         return {
             "identifiers": {(DOMAIN, f"{self.config_entry_id}_barrier_{self.barrier_id}")},
-            "name": self._attr_name,
+            "name": self._title,
             "manufacturer": "Ufanet",
             "model": "Шлагбаум",
         }

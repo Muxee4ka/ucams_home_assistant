@@ -5,9 +5,18 @@ from homeassistant.components.button import ButtonEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 
-from .utils import DOMAIN
+from .utils import DOMAIN, build_object_id, scoped_unique_id
 
 _LOGGER = logging.getLogger(__name__)
+
+# (duration in seconds, translation key, log label, entity_id suffix). The
+# suffix matches the ids buttons got before names were translated, so a new
+# camera's buttons line up with the ones users already have.
+ARCHIVE_PRESETS = (
+    (300, "archive_5_min", "за 5 минут", "arkhiv_last_5_min"),
+    (3600, "archive_1_hour", "за 1 час", "arkhiv_last_hour"),
+    (5 * 3600, "archive_5_hours", "за 5 часов", "arkhiv_last_5_hours"),
+)
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
@@ -20,57 +29,44 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         _LOGGER.error("cameras_info не найден")
         return
 
-    buttons = []
-    for camera in cameras_info.values():
-        device_name = camera["title"]
-        camera_id = camera["id"]
-        buttons.append(
-            ArchiveButton(
-                hass, config_entry, cameras_api, camera_id, device_name, "за 5 минут", 300
-            )
-        )
-        buttons.append(
-            ArchiveButton(hass, config_entry, cameras_api, camera_id, device_name, "за 1 час", 3600)
-        )
-        buttons.append(
-            ArchiveButton(
-                hass, config_entry, cameras_api, camera_id, device_name, "за 5 часов", 5 * 3600
-            )
-        )
+    buttons = [
+        ArchiveButton(hass, config_entry, cameras_api, camera, *preset)
+        for camera in cameras_info.values()
+        for preset in ARCHIVE_PRESETS
+    ]
     async_add_entities(buttons)
 
 
 class ArchiveButton(ButtonEntity):
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:video-vintage"
+
     def __init__(
         self,
         hass: HomeAssistant,
         config_entry,
         cameras_api,
-        camera_id: str,
-        device_name: str,
-        label: str,
+        camera: dict,
         duration: int,
+        translation_key: str,
+        label: str,
+        object_id_suffix: str,
     ):
-        """
-        :param hass: HomeAssistant
-        :param config_entry: ConfigEntry
-        :param cameras_api: UcamsApi
-        :param camera_id: str
-        :param device_name: str
-        :param label: str
-        :param duration: int
-        """
         self.hass = hass
         self._config_entry = config_entry
         self._cameras_api = cameras_api
-        self._camera_id = camera_id
+        self._camera_id = camera["id"]
         self._label = label
         self._duration = duration
-        self._device_name = self._cameras_api.build_device_name(device_name)
+        self._device_name = cameras_api.build_display_name(camera)
 
-        self._attr_unique_id = f"archive_button_{camera_id}_{duration}"
-        self._attr_name = f"Архив {label}"
-        self._attr_icon = "mdi:video-vintage"
+        self._attr_translation_key = translation_key
+        self._attr_unique_id = scoped_unique_id(
+            config_entry.entry_id, f"archive_button_{self._camera_id}_{duration}"
+        )
+        self.entity_id = "button.{}".format(
+            build_object_id(cameras_api.build_device_name(camera["title"]), object_id_suffix)
+        )
 
     @property
     def device_info(self) -> DeviceInfo:

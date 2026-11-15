@@ -69,7 +69,8 @@ class UcamsConfigFlow(ConfigFlow, domain=DOMAIN):
     # The schema version of the entries that it creates
     # Home Assistant will call your migrate method if the version changes
     VERSION = 1
-    MINOR_VERSION = 1
+    # 1.2: entity unique_ids are prefixed with the entry_id (async_migrate_entry).
+    MINOR_VERSION = 2
 
     def __init__(self) -> None:
         # Carries state across the multi-step phone flow.

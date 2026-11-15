@@ -68,7 +68,9 @@ async def test_setup_creates_one_switch_per_barrier(config_entry):
     entities = await _run_setup(hass, config_entry)
 
     assert [e.barrier_id for e in entities] == [42, 43]
-    assert all(e.unique_id == f"barrier-{e.barrier_id}" for e in entities)
+    assert all(e.unique_id == f"1_barrier-{e.barrier_id}" for e in entities)
+    # The switch is the barrier device itself: it takes the device name.
+    assert all(e.has_entity_name and e.name is None for e in entities)
     assert all(e.is_on is False for e in entities)
     # Devices are separate from the intercom ones and carry the Russian title.
     assert entities[0].device_info["identifiers"] == {("ucams", "1_barrier_42")}
@@ -134,10 +136,10 @@ async def test_turn_on_multi_module_targets_the_first(monkeypatch):
     entity.cameras_api.open_barrier.assert_awaited_once_with(42, 7)
     _, event_data = hass.bus.async_fire.call_args.args
     assert event_data["module_id"] == 7
-
-
     # Let the pulse finish: a pending task fails the test under the HA plugin.
     await entity._auto_off_task
+
+
 @pytest.mark.asyncio
 async def test_turn_off_cancels_the_pulse(monkeypatch):
     monkeypatch.setattr(switch_platform, "BARRIER_AUTO_OFF_DELAY", 5)

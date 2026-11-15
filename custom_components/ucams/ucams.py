@@ -491,19 +491,33 @@ class UcamsApi:
         return device_name.capitalize()
 
     def build_display_name(self, camera_info: dict) -> str:
-        """The name a user actually reads on the device and its entities.
+        """The device name of a camera: its raw (Russian) title.
 
-        Contract cameras keep the transliterated legacy name: their device is
-        re-registered under the raw Russian title by `ArchiveLinkSensor`
-        anyway (sensor is set up after camera), and their entity names have
-        always been the transliterated form — changing that would rename
-        entities people already reference. City cameras have no archive
-        sensor, so without this they would be the only devices left reading
-        as latin. `build_device_name` still supplies the entity_id slug.
+        Every platform registers the same device and the last one to do so
+        sets its name, so they all have to pass this one value. When camera
+        and image passed the transliterated form and the archive sensor the
+        raw title, the name flipped during every setup — and since HA 2026.11
+        builds every entity name as "<device> <entity>", the flip rewrote the
+        friendly names of all entities on the device (an intercom automation
+        on a state trigger fired on it). `build_device_name` still supplies
+        the entity_id slug.
         """
-        if camera_info.get("is_public"):
-            return camera_info["title"]
-        return self.build_device_name(camera_info["title"])
+        return camera_info["title"]
+
+    def build_skud_device_names(self, skud_info: dict, camera_info: dict | None) -> tuple[str, str]:
+        """(entity_id slug source, device name) for an intercom's device.
+
+        An intercom with a camera shares that camera's device, so it must
+        register the same name the camera does. Without one the device is the
+        intercom alone, named after its address (`string_view`).
+        """
+        if camera_info:
+            return self.build_device_name(camera_info["title"]), camera_info["title"]
+        string_view = skud_info.get("string_view") or "skud"
+        return (
+            self.build_device_name(f"{string_view}_{skud_info['id']}"),
+            skud_info.get("string_view") or f"Домофон {skud_info['id']}",
+        )
 
     async def get_camera_info(self, camera_id: str) -> dict | None:
         if camera_id in self.public_cameras:

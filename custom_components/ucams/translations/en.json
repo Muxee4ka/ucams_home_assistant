@@ -109,5 +109,51 @@
                 }
             }
         }
+    },
+    "entity": {
+        "button": {
+            "archive_5_min": {
+                "name": "Archive: last 5 minutes"
+            },
+            "archive_1_hour": {
+                "name": "Archive: last hour"
+            },
+            "archive_5_hours": {
+                "name": "Archive: last 5 hours"
+            }
+        },
+        "sensor": {
+            "archive_link": {
+                "name": "Archive link"
+            },
+            "last_call": {
+                "name": "Last call"
+            },
+            "balance": {
+                "name": "Balance"
+            }
+        },
+        "event": {
+            "call": {
+                "name": "Call",
+                "state_attributes": {
+                    "event_type": {
+                        "state": {
+                            "ring": "Ring"
+                        }
+                    }
+                }
+            }
+        },
+        "switch": {
+            "door": {
+                "name": "Open door"
+            }
+        },
+        "image": {
+            "snapshot": {
+                "name": "Snapshot"
+            }
+        }
     }
 }

@@ -8,9 +8,10 @@ from homeassistant.helpers.update_coordinator import (
     CoordinatorEntity,
     DataUpdateCoordinator,
 )
+from homeassistant.util import slugify
 
 from .coordinator import parse_called_at
-from .utils import DOMAIN, build_object_id
+from .utils import DOMAIN, build_object_id, scoped_unique_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,20 +41,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
             # No CCTV number → can't tie history rows to this skud, skip.
             continue
         camera_info = await cameras_api.get_camera_info(camera_id)
-        device_name = (
-            cameras_api.build_device_name(camera_info["title"])
-            if camera_info
-            else cameras_api.build_device_name(
-                f"{skud_info.get('string_view', 'skud')}_{skud_info['id']}"
-            )
-        )
+        slug_name, device_name = cameras_api.build_skud_device_names(skud_info, camera_info)
         sensors.append(
-            LastCallSensor(
-                coordinator,
-                config_entry.entry_id,
-                camera_id,
-                device_name,
-            )
+            LastCallSensor(coordinator, config_entry.entry_id, camera_id, slug_name, device_name)
         )
 
     try:
@@ -72,9 +62,11 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
                 _LOGGER.warning("Failed to fetch contract %s details: %s", contract_id, err)
                 continue
             for detail in details["detail"]:
-                sensors.append(ContractDetailSensor(hass, detail))
+                sensors.append(ContractDetailSensor(hass, config_entry.entry_id, contract, detail))
                 for service in detail["services"]:
-                    sensors.append(ServiceDetailSensor(hass, contract, service))
+                    sensors.append(
+                        ServiceDetailSensor(hass, config_entry.entry_id, contract, service)
+                    )
 
     cameras_info = hass.data[config_entry.entry_id].get("cameras_info") or {}
     for camera in cameras_info.values():
@@ -90,14 +82,28 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     async_add_entities(sensors)
 
 
+def _contract_device_info(contract: dict) -> DeviceInfo:
+    # One builder for both contract sensors: the last entity to register a
+    # device sets its name, so they must agree on it.
+    return {
+        "identifiers": {(DOMAIN, f"contract_{contract['contract_id']}")},
+        "name": f"Договор {contract['title']}",
+        "manufacturer": "Ufanet",
+    }
+
+
 class ContractDetailSensor(SensorEntity):
     _attr_icon = "mdi:cash-multiple"
+    _attr_has_entity_name = True
+    _attr_translation_key = "balance"
 
-    def __init__(self, hass, detail):
+    def __init__(self, hass, entry_id: str, contract: dict, detail: dict):
         self.hass = hass
+        self.contract = contract
         self.detail = detail
-        self._attr_name = f"Договор {detail['contract_title']}"
-        self._attr_unique_id = f"contract_{detail['contract_id']}"
+        self._attr_unique_id = scoped_unique_id(entry_id, f"contract_{detail['contract_id']}")
+        # The id the old "Договор <n>" name used to derive.
+        self.entity_id = "sensor." + slugify(f"Договор {detail['contract_title']}")
         self._attr_native_value = detail["balance"]["current"]
 
     @property
@@ -130,23 +136,24 @@ class ContractDetailSensor(SensorEntity):
         }
 
     @property
-    def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, f"contract_{self.detail['contract_id']}")},
-            "name": f"Договор {self.detail['contract_title']}",
-            "manufacturer": "Ufanet",
-        }
+    def device_info(self) -> DeviceInfo:
+        return _contract_device_info(self.contract)
 
 
 class ServiceDetailSensor(SensorEntity):
     _attr_icon = "mdi:cog-outline"
+    _attr_has_entity_name = True
 
-    def __init__(self, hass, contract, service):
+    def __init__(self, hass, entry_id: str, contract: dict, service: dict):
         self.hass = hass
         self.contract = contract
         self.service = service
-        self._attr_name = f"Услуга {service['service_title_name']}"
-        self._attr_unique_id = f"service_{contract['contract_id']}_{service['service_id']}"
+        # Comes from Ufanet as is ("Видеонаблюдение"); the device adds "Договор …".
+        self._attr_name = service["service_title_name"]
+        self._attr_unique_id = scoped_unique_id(
+            entry_id, f"service_{contract['contract_id']}_{service['service_id']}"
+        )
+        self.entity_id = "sensor." + slugify(f"Услуга {service['service_title_name']}")
         self._attr_native_value = service["service_status"]
 
     @property
@@ -163,26 +170,24 @@ class ServiceDetailSensor(SensorEntity):
         }
 
     @property
-    def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, f"contract_{self.contract['contract_id']}")},
-            "name": f"Договор {self.contract['title']}",
-            "manufacturer": "Ufanet",
-        }
+    def device_info(self) -> DeviceInfo:
+        return _contract_device_info(self.contract)
 
 
 class ArchiveLinkSensor(SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:cloud-download-outline"
+    _attr_has_entity_name = True
+    _attr_translation_key = "archive_link"
 
     def __init__(self, config_entry_id: str, camera_id: str, device_name: str):
         self._config_entry_id = config_entry_id
         self._camera_id = camera_id
         self._device_name = device_name
-        # Name kept in English so the slug HA auto-derives for entity_id
-        # stays `sensor.archive_link_<slug>` — the README example relies on it.
-        self._attr_name = f"Archive Link {device_name}"
-        self._attr_unique_id = f"archive_link_sensor_{camera_id}"
+        # `sensor.archive_link_<slug of title>`, the id the old English
+        # "Archive Link <title>" name derived — the README example relies on it.
+        self.entity_id = f"sensor.{slugify(f'archive_link_{device_name}')}"
+        self._attr_unique_id = scoped_unique_id(config_entry_id, f"archive_link_sensor_{camera_id}")
         self._state = None
         self._attrs = {}
 
@@ -221,21 +226,23 @@ class LastCallSensor(CoordinatorEntity, SensorEntity):
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_icon = "mdi:phone-incoming"
+    _attr_has_entity_name = True
+    _attr_translation_key = "last_call"
 
     def __init__(
         self,
         coordinator: DataUpdateCoordinator,
         config_entry_id: str,
         camera_id: str,
+        slug_name: str,
         device_name: str,
     ):
         super().__init__(coordinator)
         self._config_entry_id = config_entry_id
         self._camera_id = camera_id
         self._device_name = device_name
-        self._attr_name = f"Последний звонок {device_name}"
-        self._attr_unique_id = f"ucams_last_call_{camera_id}"
-        self.entity_id = f"sensor.{build_object_id(device_name, f'last_call_{camera_id}')}"
+        self._attr_unique_id = scoped_unique_id(config_entry_id, f"ucams_last_call_{camera_id}")
+        self.entity_id = f"sensor.{build_object_id(slug_name, f'last_call_{camera_id}')}"
 
     @property
     def _matching_calls(self) -> list[dict]:

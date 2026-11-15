@@ -19,7 +19,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity, DataUpda
 from homeassistant.util import dt as dt_util
 
 from .coordinator import parse_called_at
-from .utils import DOMAIN, build_object_id
+from .utils import DOMAIN, build_object_id, scoped_unique_id
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,15 +51,9 @@ async def async_setup_entry(
             # History rows are keyed by camera_number; same rule as LastCallSensor.
             continue
         camera_info = await cameras_api.get_camera_info(camera_id)
-        device_name = (
-            cameras_api.build_device_name(camera_info["title"])
-            if camera_info
-            else cameras_api.build_device_name(
-                f"{skud_info.get('string_view', 'skud')}_{skud_info['id']}"
-            )
-        )
+        slug_name, device_name = cameras_api.build_skud_device_names(skud_info, camera_info)
         entities.append(
-            IntercomCallEvent(coordinator, config_entry.entry_id, camera_id, device_name)
+            IntercomCallEvent(coordinator, config_entry.entry_id, camera_id, slug_name, device_name)
         )
     async_add_entities(entities)
 
@@ -69,12 +63,15 @@ class IntercomCallEvent(CoordinatorEntity, EventEntity):
 
     _attr_device_class = EventDeviceClass.DOORBELL
     _attr_icon = "mdi:doorbell-video"
+    _attr_has_entity_name = True
+    _attr_translation_key = "call"
 
     def __init__(
         self,
         coordinator: DataUpdateCoordinator,
         config_entry_id: str,
         camera_id: str,
+        slug_name: str,
         device_name: str,
     ) -> None:
         super().__init__(coordinator)
@@ -82,9 +79,8 @@ class IntercomCallEvent(CoordinatorEntity, EventEntity):
         self._config_entry_id = config_entry_id
         self._camera_id = str(camera_id)
         self._device_name = device_name
-        self._attr_name = f"Звонок {device_name}"
-        self._attr_unique_id = f"ucams_intercom_call_{camera_id}"
-        self.entity_id = f"event.{build_object_id(device_name, f'intercom_call_{camera_id}')}"
+        self._attr_unique_id = scoped_unique_id(config_entry_id, f"ucams_intercom_call_{camera_id}")
+        self.entity_id = f"event.{build_object_id(slug_name, f'intercom_call_{camera_id}')}"
         # Whatever history holds at startup has already happened — don't replay it.
         self._seen = {c["uuid"] for c in self._matching_calls() if c.get("uuid")}
 

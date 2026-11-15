@@ -148,6 +148,18 @@ def short_address(address: str | None) -> str | None:
     return ", ".join(parts[-2:])
 
 
+def scoped_unique_id(entry_id: str, unique_id: str) -> str:
+    """Prefix a unique_id with the config entry it belongs to.
+
+    Unique ids only have to be unique per platform+integration, across *all*
+    entries. Two accounts that see the same camera (a shared house) used to
+    produce the same `archive_link_sensor_<camera>` id, and HA dropped the
+    second entity. Scoping by entry_id keeps both. `async_migrate_entry`
+    rewrites the ids registered before this existed.
+    """
+    return f"{entry_id}_{unique_id}"
+
+
 def build_object_id(device_name: str, suffix: str | int | None) -> str:
     """Build a slugified object_id from a device name + optional suffix."""
     device_slug = _SLUG_RE.sub("_", device_name.lower()).strip("_")

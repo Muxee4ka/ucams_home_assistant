@@ -121,6 +121,35 @@ SNAPSHOT_SCHEMA = vol.Schema(
 
 _LOGGER = logging.getLogger(__name__)
 
+# Set up from the UI only; `async_setup` just exists for the services.
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """1.1 → 1.2: scope every entity unique_id by its config entry.
+
+    Before 1.2 ids were global (`archive_link_sensor_<camera>`), so two
+    accounts that see the same camera collided and HA dropped the second
+    account's entity. Renaming the unique_id in place keeps entity_ids,
+    history and user customisations.
+    """
+    if config_entry.version > 1:
+        # Written by a newer release; we can't read it.
+        return False
+    if config_entry.minor_version < 2:
+        prefix = f"{config_entry.entry_id}_"
+
+        @callback
+        def _scope(entry: er.RegistryEntry) -> dict | None:
+            if entry.unique_id.startswith(prefix):
+                return None
+            return {"new_unique_id": prefix + entry.unique_id}
+
+        await er.async_migrate_entries(hass, config_entry.entry_id, _scope)
+        hass.config_entries.async_update_entry(config_entry, minor_version=2)
+        _LOGGER.debug("Migrated entry %s unique ids to 1.2", config_entry.entry_id)
+    return True
+
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
     _LOGGER.debug("Setting up entry %s", config_entry.entry_id)

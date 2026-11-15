@@ -333,14 +333,15 @@ def test_disambiguate_titles_only_touches_duplicates():
     assert cameras["1712224251NKN5"]["title"] == "Метромост, ул Дальняя, д 8"
 
 
-def test_build_display_name_keeps_city_cameras_in_russian(ucams_api):
-    """City cameras read as Russian in the UI; contract cameras keep the
-    transliterated name their entities have always had."""
+def test_build_display_name_is_the_raw_title(ucams_api):
+    """Every platform registers the camera device under this one name — any
+    mismatch flips the device name (and with HA 2026.11 every entity name on
+    it) during setup."""
     public = {"title": "Метромост, ул Дальняя, д 8", "is_public": True}
     own = {"title": "камера1_фасад1", "is_public": False}
 
     assert ucams_api.build_display_name(public) == "Метромост, ул Дальняя, д 8"
-    assert ucams_api.build_display_name(own) == "Test config.kamera1_fasad1"
+    assert ucams_api.build_display_name(own) == "камера1_фасад1"
     # The entity_id slug is unaffected — it still comes from build_device_name.
     assert (
         ucams_api.build_device_name(public["title"]) == "Test config.metromost, ul dal'njaja, d 8"
@@ -557,3 +558,18 @@ async def test_open_barrier_with_module_id(ucams_api):
 
     _, payload = calls[0]
     assert payload == {"device_id": 42, "action": "open", "payload": {"module_id": 7}}
+
+
+def test_build_skud_device_names_follows_the_camera(ucams_api):
+    """An intercom with a camera lives on the camera's device and must name it
+    exactly as the camera does."""
+    skud = {"id": 7, "string_view": "Медицинская, 15к3, п.1"}
+
+    assert ucams_api.build_skud_device_names(skud, {"title": "1, Камера 4"}) == (
+        "Test config.1, kamera 4",
+        "1, Камера 4",
+    )
+    # No camera: the device is the intercom alone, named after its address.
+    slug, name = ucams_api.build_skud_device_names(skud, None)
+    assert name == "Медицинская, 15к3, п.1"
+    assert slug == ucams_api.build_device_name("Медицинская, 15к3, п.1_7")

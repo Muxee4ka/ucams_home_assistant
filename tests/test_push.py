@@ -153,7 +153,7 @@ def _call(uuid, camera="cam1", age=timedelta(seconds=5)):
 
 def _event(history):
     coord = MagicMock(data=history)
-    entity = IntercomCallEvent(coord, "entry", "cam1", "Dom 1")
+    entity = IntercomCallEvent(coord, "entry", "cam1", "Ucams.dom 1", "Дом 1")
     entity._trigger_event = MagicMock()
     entity.async_write_ha_state = MagicMock()
     return entity, coord

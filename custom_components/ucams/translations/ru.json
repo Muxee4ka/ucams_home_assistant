@@ -109,5 +109,51 @@
                 }
             }
         }
+    },
+    "entity": {
+        "button": {
+            "archive_5_min": {
+                "name": "Архив за 5 минут"
+            },
+            "archive_1_hour": {
+                "name": "Архив за 1 час"
+            },
+            "archive_5_hours": {
+                "name": "Архив за 5 часов"
+            }
+        },
+        "sensor": {
+            "archive_link": {
+                "name": "Ссылка на архив"
+            },
+            "last_call": {
+                "name": "Последний звонок"
+            },
+            "balance": {
+                "name": "Баланс"
+            }
+        },
+        "event": {
+            "call": {
+                "name": "Звонок",
+                "state_attributes": {
+                    "event_type": {
+                        "state": {
+                            "ring": "Звонок"
+                        }
+                    }
+                }
+            }
+        },
+        "switch": {
+            "door": {
+                "name": "Открыть дверь"
+            }
+        },
+        "image": {
+            "snapshot": {
+                "name": "Снимок"
+            }
+        }
     }
 }

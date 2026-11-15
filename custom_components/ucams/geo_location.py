@@ -15,6 +15,7 @@ from .utils import (
     PUBLIC_MARKER_ICON_URL,
     all_cameras_info,
     build_object_id,
+    scoped_unique_id,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -40,6 +41,9 @@ class UcamsLocation(GeolocationEvent):
     _attr_source = SOURCE
     _attr_unit_of_measurement = UnitOfLength.KILOMETERS
     _attr_icon = "mdi:cctv"
+    _attr_has_entity_name = True
+    # The map label is the camera itself, i.e. the device name.
+    _attr_name = None
 
     def __init__(
         self,
@@ -55,21 +59,17 @@ class UcamsLocation(GeolocationEvent):
         self._address = camera_info.get("address")
         self._is_public = bool(camera_info.get("is_public"))
 
-        self._attr_unique_id = f"geo-{self.camera_id}"
-        self._attr_name = self.display_name
+        self._attr_unique_id = scoped_unique_id(self.config_entry_id, f"geo-{self.camera_id}")
         # Without a picture the map marker is the first three letters of the
         # name; city cameras get a muted variant so they read apart from the
         # contract ones at a glance.
         self._attr_entity_picture = PUBLIC_MARKER_ICON_URL if self._is_public else MARKER_ICON_URL
-        if self._is_public:
-            # City-camera names are Russian, and this platform otherwise derives
-            # the entity_id from the name. Pin it to the same transliterated slug
-            # camera/image use so the three entities of one camera match — and so
-            # a rename upstream can't move the entity. Contract cameras keep the
-            # auto-derived id they have always had.
-            self.entity_id = "geo_location.{}".format(
-                build_object_id(cameras_api.build_device_name(camera_info["title"]), self.camera_id)
-            )
+        # Pinned, not derived: HA would build it from the (Russian) device name.
+        # City cameras use the slug camera/image use; contract cameras keep the
+        # form the old name-derived id had (`geo_location.ucams_kamera_1`).
+        device_name = cameras_api.build_device_name(camera_info["title"])
+        object_id = build_object_id(device_name, self.camera_id if self._is_public else None)
+        self.entity_id = f"geo_location.{object_id}"
         self._attr_latitude = float(camera_info["latitude"])
         self._attr_longitude = float(camera_info["longitude"])
 

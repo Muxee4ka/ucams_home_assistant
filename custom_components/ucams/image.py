@@ -13,6 +13,7 @@ from .utils import (
     PUBLIC_CAMERA_MODEL,
     all_cameras_info,
     build_object_id,
+    scoped_unique_id,
 )
 
 
@@ -27,6 +28,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 
 class UcamsCameraImageEntity(ImageEntity):
+    _attr_has_entity_name = True
+    _attr_translation_key = "snapshot"
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -40,13 +44,12 @@ class UcamsCameraImageEntity(ImageEntity):
         self.config_entry_id = config_entry.entry_id
         self.cameras_api = cameras_api
         self.camera_id = camera_info["id"]
-        # device_name feeds the entity_id slug; display_name is what the UI shows.
+        # device_name feeds the entity_id slug; display_name is the device name.
         self.device_name = self.cameras_api.build_device_name(camera_info["title"])
         self.display_name = self.cameras_api.build_display_name(camera_info)
         self._is_public = bool(camera_info.get("is_public"))
         self.entity_id = f"image.{build_object_id(self.device_name, self.camera_id)}"
-        self._attr_unique_id = f"image-{self.camera_id}"
-        self._attr_name = self.display_name
+        self._attr_unique_id = scoped_unique_id(self.config_entry_id, f"image-{self.camera_id}")
         self._attr_icon = "mdi:image-area"
         refresh_seconds = config_entry.options[CONF_CAMERA_IMAGE_REFRESH_INTERVAL]
         self._refresh_cancel_fn = async_track_time_interval(

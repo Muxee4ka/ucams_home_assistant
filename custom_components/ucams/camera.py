@@ -16,6 +16,7 @@ from .utils import (
     all_cameras_info,
     build_object_id,
     parse_house_area,
+    scoped_unique_id,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,6 +34,10 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 
 class Ucams(Camera):
+    _attr_has_entity_name = True
+    # The camera is what the device is: it takes the device name.
+    _attr_name = None
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -46,7 +51,7 @@ class Ucams(Camera):
         self.config_entry_id = config_entry.entry_id
         self.cameras_api = cameras_api
         self.camera_id = camera_info["id"]
-        # device_name feeds the entity_id slug; display_name is what the UI shows.
+        # device_name feeds the entity_id slug; display_name is the device name.
         self.device_name = cameras_api.build_device_name(camera_info["title"])
         self.display_name = cameras_api.build_display_name(camera_info)
         self._is_public = bool(camera_info.get("is_public"))
@@ -57,8 +62,7 @@ class Ucams(Camera):
         )
         self.entity_id = f"camera.{build_object_id(self.device_name, self.camera_id)}"
 
-        self._attr_unique_id = f"camera-{self.camera_id}"
-        self._attr_name = self.display_name
+        self._attr_unique_id = scoped_unique_id(self.config_entry_id, f"camera-{self.camera_id}")
         self._attr_icon = "mdi:cctv"
         self._attr_supported_features = CameraEntityFeature.STREAM
         self._stream_refresh_cancel_fn = async_track_time_interval(
