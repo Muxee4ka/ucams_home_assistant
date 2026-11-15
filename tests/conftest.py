@@ -1,12 +1,32 @@
 """Common fixtures for ucams integration tests."""
 
 import asyncio
+import inspect
 import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+from aiohttp import ClientResponse
 from homeassistant.core import HomeAssistant
+
+# aiohttp 3.14 (HA 2026.11) added a required keyword-only `stream_writer` to
+# ClientResponse.__init__; aioresponses <= 0.7.9 builds responses without it.
+# ClientResponse only reads `output_size` off it when there is no request
+# writer, so a stub is enough. Drop once aioresponses supports aiohttp 3.14.
+if "stream_writer" in inspect.signature(ClientResponse.__init__).parameters:
+
+    class _StubStreamWriter:
+        output_size = 0
+
+    _client_response_init = ClientResponse.__init__
+
+    def _init_with_stream_writer(self, *args, **kwargs):
+        if kwargs.get("stream_writer") is None:
+            kwargs["stream_writer"] = _StubStreamWriter()
+        _client_response_init(self, *args, **kwargs)
+
+    ClientResponse.__init__ = _init_with_stream_writer
 
 if sys.platform == "win32":
     # aiohttp + aiodns refuses to start on Windows ProactorEventLoop. CI runs

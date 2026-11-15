@@ -29,12 +29,17 @@ dev = [
     # through hundreds of HA / pytest-homeassistant-custom-component releases
     # and dies building numpy 1.23 from source (CI broke that way 2026-10-12).
     "homeassistant==2025.1.4; python_version < '3.13'",
-    "homeassistant==2026.2.3; python_version >= '3.13'",
+    "homeassistant==2026.2.3; python_version >= '3.13' and python_version < '3.14'",
+    # 2026.11 needs Python 3.14 — the release with the Marketplace and
+    # device-composed entity names.
+    "homeassistant==2026.11.1; python_version >= '3.14'",
     "firebase-messaging>=0.4.0",
     "aiohttp",
     "pytest",
     "pytest-asyncio",
-    "pytest-homeassistant-custom-component",
+    # Nothing imports it yet; it lags HA releases (none for 2026.11 at the
+    # time of writing) and pip falls back to an ancient one on 3.14.
+    "pytest-homeassistant-custom-component; python_version < '3.14'",
     "aioresponses",
     "ruff",
     "mypy",

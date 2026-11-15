@@ -136,6 +136,8 @@ async def test_turn_on_multi_module_targets_the_first(monkeypatch):
     assert event_data["module_id"] == 7
 
 
+    # Let the pulse finish: a pending task fails the test under the HA plugin.
+    await entity._auto_off_task
 @pytest.mark.asyncio
 async def test_turn_off_cancels_the_pulse(monkeypatch):
     monkeypatch.setattr(switch_platform, "BARRIER_AUTO_OFF_DELAY", 5)
