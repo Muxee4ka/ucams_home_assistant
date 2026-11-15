@@ -6,7 +6,7 @@
 
 **Неофициальная интеграция видеонаблюдения и домофонов Уфанет (Ufanet) для Home Assistant.**
 
-[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=flat-square)](https://github.com/hacs/integration)
+[![Marketplace](https://img.shields.io/badge/Marketplace-custom-41BDF5.svg?style=flat-square)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Muxee4ka&repository=ucams_home_assistant&category=integration)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
 [![Tests](https://img.shields.io/github/actions/workflow/status/Muxee4ka/ucams_home_assistant/test.yml?branch=master&label=tests&style=flat-square)](https://github.com/Muxee4ka/ucams_home_assistant/actions/workflows/test.yml)
 [![Validate](https://img.shields.io/github/actions/workflow/status/Muxee4ka/ucams_home_assistant/validate.yml?branch=master&label=hassfest%20%2B%20hacs&style=flat-square)](https://github.com/Muxee4ka/ucams_home_assistant/actions/workflows/validate.yml)
@@ -30,16 +30,27 @@
 - **Городские камеры** — публичные камеры Уфанет («Городские камеры» в приложении) можно добавить по поиску и радиусу от дома. Только live, без архива.
 - **Геолокация** — камеры с координатами появляются на HA-карте значком камеры (свои — синим, городские — серым); расстояние до дома считается автоматически.
 - **Биллинг** — sensor'ы с информацией о договорах и подключённых услугах.
-- **Авто-области** — устройства группируются по адресу (улица + дом) и автоматически привязываются к area.
+- **Авто-области** — устройства группируются по адресу (улица + дом) и автоматически привязываются к area; шлагбаум попадает туда же, где его камера.
 
 ## Установка
 
-### Через HACS (рекомендуется)
+### Через Marketplace (рекомендуется)
 
-1. HACS → **Интеграции** → **⋮** → **Пользовательские репозитории**
-2. URL: `https://github.com/Muxee4ka/ucams_home_assistant`, категория **Integration**
-3. Найти **Ucams** в списке и установить
-4. Перезапустить Home Assistant
+С Home Assistant 2026.11 HACS встроен в HA и называется **Marketplace**
+(**Настройки** → **Marketplace**). Кнопка ниже откроет репозиторий в нём и
+предложит добавить его как пользовательский:
+
+[![Открыть в Marketplace](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Muxee4ka&repository=ucams_home_assistant&category=integration)
+
+Или вручную: **Marketplace** → **⋮** → **Пользовательские репозитории** →
+URL `https://github.com/Muxee4ka/ucams_home_assistant`, тип **Integration** →
+найти **Ucams** и установить.
+
+При первой установке перезапуск не нужен — интеграцию можно сразу добавить.
+Обновления, как и раньше, требуют перезапуска: Marketplace сам покажет
+уведомление с кнопкой «Перезапустить».
+
+На HA до 2026.11 та же кнопка открывает HACS, шаги те же.
 
 ### Вручную
 
@@ -218,7 +229,7 @@ mode: single
 ## Поддержка
 
 - **Баги и идеи** — [Issues](https://github.com/Muxee4ka/ucams_home_assistant/issues)
-- **Код-ревью / контрибы** — PR в `master` приветствуются, CI прогонит ruff + pytest на 3.12 и 3.13 + hassfest + HACS
+- **Код-ревью / контрибы** — PR в `master` приветствуются, CI прогонит ruff + pytest на 3.12, 3.13 и 3.14 + hassfest + HACS
 - **Telegram автора** — см. профиль [@Muxee4ka](https://github.com/Muxee4ka)
 
 ## Лицензия

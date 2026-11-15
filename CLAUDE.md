@@ -13,7 +13,7 @@ pytest tests/test_ucams.py::test_get_cameras_info_paginates    # single test
 docker compose up -d           # boot HA at :8123 with this integration mounted live
 ```
 
-CI (`.github/workflows/`) runs ruff + pytest on Python 3.12 and 3.13, plus `hassfest` and the HACS validator. Match those locally before pushing — ruff is the source of truth for style (`pyproject.toml [tool.ruff]`, line length 100, py312 target). `homeassistant`/`aiohttp` are dev-only deps; runtime deps are declared in `custom_components/ucams/manifest.json` (HA installs them itself).
+CI (`.github/workflows/`) runs ruff + pytest on Python 3.12, 3.13 and 3.14 (HA 2025.1 / 2026.2 / 2026.11 — 2026.11 needs 3.14), plus `hassfest` and the HACS validator. On aiohttp 3.14 `aioresponses` 0.7.9 needs the `stream_writer` shim in `tests/conftest.py`. Match those locally before pushing — ruff is the source of truth for style (`pyproject.toml [tool.ruff]`, line length 100, py312 target). `homeassistant`/`aiohttp` are dev-only deps; runtime deps are declared in `custom_components/ucams/manifest.json` (HA installs them itself).
 
 ## High-level architecture
 
@@ -118,15 +118,29 @@ truth (`push.data.uuid` ≠ history uuid; only `time` == `called_at`).
 ### Conventions worth knowing
 
 - **Entity ids are slugified through `utils.transliterate_ru` + `build_object_id`.** The `_RU_TRANSLIT` mapping in `utils.py` is **vendored verbatim from `transliterate>=1.10`** to preserve every entity_id that existed before the dependency was dropped — don't "improve" it.
-- **Device names come from the *last* platform to register the device.** All
-  platforms pass a `name` in `DeviceInfo` for the same identifiers, and
-  `sensor.ArchiveLinkSensor` passes the **raw Russian** `camera["title"]` while
-  camera/image pass the transliterated one — so contract-camera devices read
-  Russian in the UI. City cameras have no archive sensor, so they need
-  `UcamsApi.build_display_name` to get the same treatment. `build_device_name`
-  stays the source of the **entity_id** slug for everyone; only the displayed
-  name differs. `geo_location` pins `entity_id` explicitly for public cameras
-  because it otherwise derives it from the (now Russian) name.
+- **Every entity sets `has_entity_name = True` and names only itself.** Since
+  HA 2026.11 the UI shows "<device> <entity>" everywhere, so a name that repeats
+  the device ("Archive Link 1, Камера 4") reads twice. Names come from
+  `translation_key` (`translations/{en,ru}.json` → `entity`); the camera,
+  geo_location and barrier switch are the device itself (`_attr_name = None`);
+  service sensors use the upstream service title as is.
+- **All platforms must pass the same device name** — the *last* one to register
+  a device sets it, and a mismatch flips the name (and with it every entity's
+  friendly_name) during each setup; an intercom automation on a bare state
+  trigger fired on that. Camera devices: `UcamsApi.build_display_name` (raw
+  title). Intercoms: `build_skud_device_names` (the camera's title, else the
+  skud `string_view`). Contracts: `sensor._contract_device_info`.
+  `build_device_name` (transliterated) stays the source of the **entity_id**
+  slug only.
+- **entity_ids are pinned on every entity** (`self.entity_id = …`). With
+  `has_entity_name` HA would derive them from the device name + the *English*
+  translation; pinning keeps new entities in the form existing ones have
+  (`sensor.archive_link_<slug>` — the README relies on it,
+  `button.<slug>_arkhiv_last_5_min`, …). Registered entities keep theirs anyway.
+- **unique_ids are prefixed with the entry_id** (`utils.scoped_unique_id`,
+  config entry minor version 1.2, `async_migrate_entry` renames old ones in
+  place). Unprefixed, two accounts that see the same camera collided and HA
+  dropped the second account's entities.
 - **`short_address` vs `parse_house_area`.** `parse_house_area` (area names) only
   strips a dotted `"г. <city>, "` prefix; `/api/v1/cctv` and the public list both
   return the undotted `"г <city>, "` form, which it leaves alone — changing that
@@ -144,14 +158,14 @@ truth (`push.data.uuid` ≠ history uuid; only `time` == `called_at`).
   unregistered) and `geo_location` points `entity_picture` at
   `camera_marker.svg` / `camera_marker_public.svg`. `StaticPathConfig` is
   imported inside that function: it doesn't exist on the HA 2024.4.4 minimum
-  `hacs.json` declares, which is also what the dev venv pins.
-- **`parse_house_area`** strips `"г. <city>, "` prefix and `", п.<n>"` porch suffix from Ufanet addresses, yielding a `"Street, House"` HA area name. Areas are assigned post-setup in `_assign_areas_by_address` because `suggested_area` only fires on a device's first registration — but **only to devices with no area yet**: it runs on every setup, so overriding would undo the user's own placement on each restart (issue #17).
+  `hacs.json` declares.
+- **`parse_house_area`** strips `"г. <city>, "` prefix and `", п.<n>"` porch suffix from Ufanet addresses, yielding a `"Street, House"` HA area name. Areas are assigned post-setup in `_assign_areas_by_address` because `suggested_area` only fires on a device's first registration — but **only to devices with no area yet**: it runs on every setup, so overriding would undo the user's own placement on each restart (issue #17). Barriers have no address: they go into the area of the first of their `camera_numbers` that has one (including an area the user picked for that camera).
 - **The legacy `cams_server/api/v0/cameras/my/` endpoint** (no longer used on the read path) strictly validates its `fields` array — `"house"` returned HTTP 400, which is why addresses are parsed locally. If you ever re-add that endpoint, every new field needs verifying in isolation before shipping.
 - **Hard-to-reverse / setup-time decisions live in `__init__.py`'s docstrings/comments**; trust those over the wider HA docs when they conflict.
 
 ### Tests (`tests/`)
 
-`pytest-asyncio` in `auto` mode. `conftest.py` hands out a `MagicMock(spec=HomeAssistant)` because `UcamsApi`/`DomApi` only store `hass` and never call into it — keeping these as pure unit tests, no event loop boot. HTTP is mocked with `aioresponses`. There are no HA-fixture integration tests yet; if you add one, use `pytest-homeassistant-custom-component` (already in dev deps).
+`pytest-asyncio` in `auto` mode. `conftest.py` hands out a `MagicMock(spec=HomeAssistant)` because `UcamsApi`/`DomApi` only store `hass` and never call into it — keeping these as pure unit tests, no event loop boot. HTTP is mocked with `aioresponses`. There are no HA-fixture integration tests yet; if you add one, use `pytest-homeassistant-custom-component` (in dev deps below Python 3.14 — it had no release for HA 2026.11 yet).
 
 ### Local HA dev (`docker-compose.yml`)
 
