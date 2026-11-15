@@ -66,8 +66,12 @@ variables:
   snapshot_file: "/config/www/ucams_snapshots/intercom_{{ camera | replace('.', '_') }}.jpg"
 
 trigger:
+  # `to: ~` — только смена состояния, без смены атрибутов. Иначе автоматизация
+  # срабатывает, когда HA при старте переименовывает устройство (меняется
+  # friendly_name), а состояние остаётся временем прошлого звонка.
   - platform: state
     entity_id: !input call_event
+    to: ~
 
 condition:
   # Событие при каждом новом звонке меняет состояние на время звонка. Переходы
@@ -76,6 +80,7 @@ condition:
     value_template: >
       {{ trigger.from_state is not none
          and trigger.from_state.state != 'unavailable'
+         and trigger.from_state.state != trigger.to_state.state
          and trigger.to_state.state not in ['unknown', 'unavailable']
          and trigger.to_state.attributes.event_type == 'ring' }}
 
