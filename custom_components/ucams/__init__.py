@@ -167,6 +167,13 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
         await ufanet_api.close()
         raise ConfigEntryNotReady("Ufanet returned an empty camera list")
     public_cameras_info = await _async_load_public_cameras(hass, config_entry, cameras_api)
+    # A camera both accounts of a household see is shown once. Filtered copies:
+    # UcamsApi keeps the full list for token refresh and intercom lookups.
+    shared = _cameras_owned_elsewhere(hass, config_entry, {*cameras_info, *public_cameras_info})
+    if shared:
+        _remove_camera_entities(hass, config_entry, shared)
+        cameras_info = {k: v for k, v in cameras_info.items() if k not in shared}
+        public_cameras_info = {k: v for k, v in public_cameras_info.items() if k not in shared}
     barriers_info = await _async_load_barriers(cameras_api)
     hass.data[config_entry.entry_id] = {
         "cameras_api": cameras_api,
@@ -289,6 +296,94 @@ async def _async_load_barriers(cameras_api: UcamsApi) -> list[dict]:
     except Exception as err:
         _LOGGER.warning("Failed to load barriers: %s", err)
         return []
+
+
+# unique_id prefixes (after the entry_id) of the entities that exist once per
+# camera — the ones a second account seeing the same camera would duplicate.
+# Intercom entities are keyed by the account's own skud and never collide.
+_CAMERA_ENTITY_PREFIXES = ("camera-", "image-", "geo-", "archive_link_sensor_", "archive_button_")
+
+
+def _camera_of_unique_id(unique_id: str, entry_id: str) -> tuple[str, str] | None:
+    """(prefix, camera id) of a per-camera unique_id, scoped or legacy."""
+    unique_id = unique_id.removeprefix(f"{entry_id}_")
+    for prefix in _CAMERA_ENTITY_PREFIXES:
+        if unique_id.startswith(prefix):
+            camera_id = unique_id[len(prefix) :]
+            if prefix == "archive_button_":
+                camera_id = camera_id.rsplit("_", 1)[0]  # trailing duration
+            return prefix, camera_id
+    return None
+
+
+def _cameras_owned_elsewhere(
+    hass: HomeAssistant, config_entry: ConfigEntry, camera_ids: set[str]
+) -> set[str]:
+    """Cameras of this entry that another Ucams entry already shows.
+
+    Two accounts of one household see the same house cameras. Each used to
+    get the full set only by accident of colliding unique_ids (HA dropped the
+    second copy with an error); scoped ids would show every shared camera
+    twice. The owner of a camera is the active entry whose camera entity was
+    registered first — so an upgrade keeps the entities users already have,
+    and two entries set up at once for the first time settle on the next
+    start (entry order breaks the tie when `created_at` is missing).
+    """
+    entries = [
+        e.entry_id for e in hass.config_entries.async_entries(DOMAIN) if e.disabled_by is None
+    ]
+    if len(entries) < 2 or not camera_ids:
+        return set()
+    order = {entry_id: index for index, entry_id in enumerate(entries)}
+    registrations: dict[str, list[tuple]] = {}
+    for entity in er.async_get(hass).entities.values():
+        if entity.platform != DOMAIN or entity.domain != "camera":
+            continue
+        if entity.config_entry_id not in order:
+            continue
+        parsed = _camera_of_unique_id(entity.unique_id, entity.config_entry_id)
+        if parsed is None or parsed[0] != "camera-" or parsed[1] not in camera_ids:
+            continue
+        registrations.setdefault(parsed[1], []).append(
+            (
+                getattr(entity, "created_at", None),
+                order[entity.config_entry_id],
+                entity.config_entry_id,
+            )
+        )
+    shared = set()
+    for camera_id, regs in registrations.items():
+        if all(created is not None for created, _, _ in regs):
+            owner = min(regs, key=lambda r: (r[0], r[1]))
+        else:
+            owner = min(regs, key=lambda r: r[1])
+        if owner[2] != config_entry.entry_id:
+            shared.add(camera_id)
+    return shared
+
+
+def _remove_camera_entities(
+    hass: HomeAssistant, config_entry: ConfigEntry, camera_ids: set[str]
+) -> None:
+    """Drop this entry's own entities (and then-empty devices) of `camera_ids`."""
+    ent_reg = er.async_get(hass)
+    dev_reg = dr.async_get(hass)
+    touched_devices = set()
+    for entity in er.async_entries_for_config_entry(ent_reg, config_entry.entry_id):
+        parsed = _camera_of_unique_id(entity.unique_id, config_entry.entry_id)
+        if parsed is None or parsed[1] not in camera_ids:
+            continue
+        ent_reg.async_remove(entity.entity_id)
+        if entity.device_id:
+            touched_devices.add(entity.device_id)
+    for device_id in touched_devices:
+        if not er.async_entries_for_device(ent_reg, device_id, include_disabled_entities=True):
+            dev_reg.async_remove_device(device_id)
+    _LOGGER.info(
+        "Entry %s: %s camera(s) shown by another Ucams entry, skipped",
+        config_entry.entry_id,
+        len(camera_ids),
+    )
 
 
 def _had_contract_cameras(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:

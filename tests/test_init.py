@@ -179,3 +179,92 @@ def test_assign_areas_puts_a_barrier_next_to_its_camera(monkeypatch):
     )
 
     dev_reg.async_update_device.assert_called_once_with("b1", area_id="yard")
+
+
+def _reg_entity(entry_id, unique_id, created_at=None, domain="camera", device_id=None):
+    return SimpleNamespace(
+        platform="ucams",
+        domain=domain,
+        config_entry_id=entry_id,
+        unique_id=unique_id,
+        created_at=created_at,
+        entity_id=f"{domain}.{unique_id.lower()}",
+        device_id=device_id,
+    )
+
+
+def _two_entries(monkeypatch, entities):
+    hass = MagicMock()
+    hass.config_entries.async_entries.return_value = [
+        SimpleNamespace(entry_id="A", disabled_by=None),
+        SimpleNamespace(entry_id="B", disabled_by=None),
+    ]
+    registry = SimpleNamespace(entities={e.entity_id: e for e in entities})
+    monkeypatch.setattr(ucams_init.er, "async_get", MagicMock(return_value=registry))
+    return hass
+
+
+def test_camera_of_unique_id_reads_scoped_and_legacy_ids():
+    assert ucams_init._camera_of_unique_id("A_camera-CAM1", "A") == ("camera-", "CAM1")
+    assert ucams_init._camera_of_unique_id("camera-CAM1", "A") == ("camera-", "CAM1")
+    assert ucams_init._camera_of_unique_id("A_archive_button_CAM1_300", "A") == (
+        "archive_button_",
+        "CAM1",
+    )
+    assert ucams_init._camera_of_unique_id("A_switch-135542", "A") is None
+
+
+def test_shared_camera_stays_with_the_entry_that_registered_it_first(monkeypatch):
+    """An upgrade must keep the entities users already have: B registered
+    CAM1 long ago, A's copy is new — A skips it. CAM2 is A's alone."""
+    old, new = datetime(1970, 1, 1), datetime(2026, 11, 15)
+    hass = _two_entries(
+        monkeypatch,
+        [
+            _reg_entity("B", "B_camera-CAM1", old),
+            _reg_entity("A", "A_camera-CAM1", new),
+            _reg_entity("A", "A_camera-CAM2", new),
+        ],
+    )
+
+    entry_a = SimpleNamespace(entry_id="A")
+    entry_b = SimpleNamespace(entry_id="B")
+    assert ucams_init._cameras_owned_elsewhere(hass, entry_a, {"CAM1", "CAM2"}) == {"CAM1"}
+    assert ucams_init._cameras_owned_elsewhere(hass, entry_b, {"CAM1"}) == set()
+
+
+def test_first_setup_of_a_shared_camera_keeps_it(monkeypatch):
+    """Nobody has it registered yet (fresh install): both keep it; the next
+    start settles on one owner by entry order."""
+    hass = _two_entries(monkeypatch, [])
+    assert ucams_init._cameras_owned_elsewhere(hass, SimpleNamespace(entry_id="B"), {"X"}) == set()
+
+    same = datetime(2026, 11, 15)
+    hass = _two_entries(
+        monkeypatch, [_reg_entity("A", "A_camera-X", same), _reg_entity("B", "B_camera-X", same)]
+    )
+    assert ucams_init._cameras_owned_elsewhere(hass, SimpleNamespace(entry_id="B"), {"X"}) == {"X"}
+    assert ucams_init._cameras_owned_elsewhere(hass, SimpleNamespace(entry_id="A"), {"X"}) == set()
+
+
+def test_remove_camera_entities_drops_only_per_camera_entities(monkeypatch):
+    entities = [
+        _reg_entity("A", "A_camera-CAM1", device_id="dev1"),
+        _reg_entity("A", "A_archive_button_CAM1_300", domain="button", device_id="dev1"),
+        _reg_entity("A", "A_switch-135542", domain="switch", device_id="dev2"),
+        _reg_entity("A", "A_camera-CAM2", device_id="dev3"),
+    ]
+    ent_reg = MagicMock()
+    dev_reg = MagicMock()
+    monkeypatch.setattr(ucams_init.er, "async_get", MagicMock(return_value=ent_reg))
+    monkeypatch.setattr(ucams_init.dr, "async_get", MagicMock(return_value=dev_reg))
+    monkeypatch.setattr(
+        ucams_init.er, "async_entries_for_config_entry", MagicMock(return_value=entities)
+    )
+    monkeypatch.setattr(ucams_init.er, "async_entries_for_device", MagicMock(return_value=[]))
+
+    ucams_init._remove_camera_entities(MagicMock(), SimpleNamespace(entry_id="A"), {"CAM1"})
+
+    removed = [c.args[0] for c in ent_reg.async_remove.call_args_list]
+    assert removed == ["camera.a_camera-cam1", "button.a_archive_button_cam1_300"]
+    dev_reg.async_remove_device.assert_called_once_with("dev1")
