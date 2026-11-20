@@ -154,6 +154,11 @@
             "snapshot": {
                 "name": "Снимок"
             }
+        },
+        "binary_sensor": {
+            "motion": {
+                "name": "Движение"
+            }
         }
     }
 }

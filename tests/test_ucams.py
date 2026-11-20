@@ -573,3 +573,55 @@ def test_build_skud_device_names_follows_the_camera(ucams_api):
     slug, name = ucams_api.build_skud_device_names(skud, None)
     assert name == "Медицинская, 15к3, п.1"
     assert slug == ucams_api.build_device_name("Медицинская, 15к3, п.1_7")
+
+
+@pytest.mark.asyncio
+async def test_get_motion_cameras_reads_the_analytics_list(ucams_api):
+    calls = _attach_cams_session(
+        ucams_api,
+        [
+            {
+                "count": 2,
+                "results": [
+                    {"number": "CAM1", "analytics": ["motion_alarm"]},
+                    {"number": "CAM2", "analytics": []},
+                    {"number": "CAM3", "analytics": None},
+                ],
+            }
+        ],
+    )
+
+    assert await ucams_api.get_motion_cameras(["CAM1", "CAM2", "CAM3"]) == {"CAM1"}
+    url, payload = calls[0]
+    assert url == "https://cams.example.com/api/v0/cameras/this/"
+    assert payload["numbers"] == ["CAM1", "CAM2", "CAM3"]
+    assert payload["fields"] == ["number", "analytics"]
+
+
+@pytest.mark.asyncio
+async def test_get_motion_events_chunks_cameras(ucams_api, monkeypatch):
+    from datetime import UTC, datetime
+
+    import custom_components.ucams.ucams as ucams_module
+
+    monkeypatch.setattr(ucams_module, "MOTION_CHUNK", 2)
+    event = {"id": 1, "date": "2026-11-20T17:08:19Z", "length": 60, "camera_number": "A"}
+    calls = _attach_cams_session(
+        ucams_api,
+        [
+            {"results": [{**event, "type": "motion_alarm"}, {**event, "type": "crowd"}]},
+            {"results": []},
+        ],
+    )
+    start = datetime(2026, 11, 20, 17, 0, tzinfo=UTC)
+    end = datetime(2026, 11, 20, 17, 15, tzinfo=UTC)
+
+    events = await ucams_api.get_motion_events(["A", "B", "C"], start, end)
+
+    assert [e["type"] for e in events] == ["motion_alarm"]
+    assert [p["camera_numbers"] for _, p in calls] == [["A", "B"], ["C"]]
+    url, payload = calls[0]
+    assert url == "https://cams.example.com/api/v0/analytics/archive_events_many/"
+    assert payload["start"] == "2026-11-20T17:00:00+00:00"
+    assert payload["end"] == "2026-11-20T17:15:00+00:00"
+    assert payload["order_by_date"] == "desc"

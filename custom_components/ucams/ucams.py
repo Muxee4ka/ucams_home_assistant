@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from collections import Counter
+from datetime import datetime
 from time import time
 from urllib.parse import urljoin
 
@@ -62,6 +63,19 @@ TOKEN_RETRY_COOLDOWN = 300
 # answers that burst of identical list requests with 429; within this window
 # a camera reuses the refresh another one just did instead of asking again.
 SOURCE_REFRESH_MIN_INTERVAL = 60
+# Ufanet's motion detector («События» in the app). Which cameras have it comes
+# from the per-camera `analytics` list; the events themselves from
+# `analytics/archive_events_many`, the call the web client's archive timeline
+# makes. 106 numbers went through in one request on a live account; the chunk
+# only keeps the body bounded on bigger ones.
+MOTION_ALARM = "motion_alarm"
+MOTION_CHUNK = 100
+MOTION_EVENTS_LIMIT = 1000
+
+
+def _chunks(items: list, size: int):
+    for index in range(0, len(items), size):
+        yield items[index : index + size]
 
 
 def _public_camera_title(title: str | None, address: str | None) -> str:
@@ -407,6 +421,57 @@ class UcamsApi:
     async def _post_cams(self, session: ClientSession, endpoint: str, payload: dict) -> dict:
         url = f"{self.cams_server}/api/v0/cameras/{endpoint}/"
         return await self._post_cams_json(session, url, payload)
+
+    async def get_motion_cameras(self, camera_ids: list[str]) -> set[str]:
+        """The cameras out of `camera_ids` that have Ufanet's motion detector."""
+        session = await self._ensure_cams_session()
+        found: set[str] = set()
+        for chunk in _chunks(camera_ids, MOTION_CHUNK):
+            data = await self._post_cams(
+                session,
+                "this",
+                {
+                    "numbers": chunk,
+                    "fields": ["number", "analytics"],
+                    "page": 1,
+                    "page_size": len(chunk),
+                },
+            )
+            for cam in data.get("results") or []:
+                if MOTION_ALARM in (cam.get("analytics") or []):
+                    found.add(str(cam.get("number")))
+        return found
+
+    async def get_motion_events(
+        self, camera_ids: list[str], start: datetime, end: datetime
+    ) -> list[dict]:
+        """Motion events of `camera_ids` that *started* between `start` and `end`.
+
+        Rows are `{"id", "date", "length", "camera_number", "type"}`. An event
+        shows up as soon as motion starts, with `length` 60; while the motion
+        goes on the server stretches `length` by about a minute at a time.
+        The window filters on `date` alone — an event that began before
+        `start` is not returned even if it is still running.
+        """
+        session = await self._ensure_cams_session()
+        url = f"{self.cams_server}/api/v0/analytics/archive_events_many/"
+        events: list[dict] = []
+        for chunk in _chunks(camera_ids, MOTION_CHUNK):
+            data = await self._post_cams_json(
+                session,
+                url,
+                {
+                    "camera_numbers": chunk,
+                    "start": start.isoformat(),
+                    "end": end.isoformat(),
+                    "limit": MOTION_EVENTS_LIMIT,
+                    "order_by_date": "desc",
+                },
+            )
+            events.extend(
+                row for row in data.get("results") or [] if row.get("type") == MOTION_ALARM
+            )
+        return events
 
     @staticmethod
     def _build_barrier_entry(row: dict) -> dict:

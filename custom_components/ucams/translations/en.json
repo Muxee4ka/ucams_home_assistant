@@ -154,6 +154,11 @@
             "snapshot": {
                 "name": "Snapshot"
             }
+        },
+        "binary_sensor": {
+            "motion": {
+                "name": "Motion"
+            }
         }
     }
 }

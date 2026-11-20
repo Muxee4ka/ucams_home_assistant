@@ -54,6 +54,8 @@ come back `null`, so `get_camera_archive` refuses them before making a request.
                               and event both read it, and HA sets platforms
                               up concurrently),
   "push_listener" (only with the push option on),
+  "motion_cameras", "motion_coordinator" (only when some contract camera
+                              has Ufanet's motion detector),
   "camera_entities" (set by camera.py),
   "archive_link_sensors" (set by sensor.py) }
 ```
@@ -100,9 +102,24 @@ truth (`push.data.uuid` ≠ history uuid; only `time` == `called_at`).
 - `firebase-messaging>=0.4.0` on purpose: 0.4.1/0.4.4/0.4.5 pin protobuf <5 /
   <6 / >=6.30, matching HA 2024.4 / 2024.12 / 2025.6+ constraints.
 
-### Platforms (seven)
+### Motion events (`binary_sensor.py`)
 
-`PLATFORMS = [IMAGE, CAMERA, SWITCH, SENSOR, BUTTON, GEO_LOCATION, EVENT]`. They cluster around shared **device identifiers** of the form `(DOMAIN, f"{entry_id}_{camera_id}")` so the camera, image, switch (intercom), archive button, archive-link sensor, last-call sensor, and geo_location entity all show up under one HA device. Skud entries without a `cctv_number` get their own device id keyed by `skud_id` instead.
+The app's «События» on a camera are cams_server analytics events of type
+`motion_alarm`. Which cameras have the detector: `analytics` field via
+`/api/v0/cameras/this/` (`UcamsApi.get_motion_cameras`, once at setup,
+non-fatal). Events: `POST /api/v0/analytics/archive_events_many/`
+(`camera_numbers`, `start`, `end`, `limit`, `order_by_date`) — the web
+client's archive-timeline call; no push or socket exists for them. An event is
+listed at motion start with `length` 60 and the server stretches `length` by
+~1 min while motion goes on, closing it at ~6 min. **The window filters on the
+event start only**, hence `MOTION_WINDOW` (15 min) > the longest event. The
+coordinator polls every 15s and keeps per camera the event that ends last; the
+sensor is on until `start + length + MOTION_GRACE` (30s — the stretch is only
+visible a few seconds after the old end). City cameras get no motion sensor.
+
+### Platforms (eight)
+
+`PLATFORMS = [IMAGE, CAMERA, SWITCH, SENSOR, BUTTON, GEO_LOCATION, EVENT, BINARY_SENSOR]`. They cluster around shared **device identifiers** of the form `(DOMAIN, f"{entry_id}_{camera_id}")` so the camera, image, switch (intercom), archive button, archive-link sensor, last-call sensor, motion sensor and geo_location entity all show up under one HA device. Skud entries without a `cctv_number` get their own device id keyed by `skud_id` instead.
 
 - **`camera.Ucams`** — `CameraEntityFeature.STREAM` only, no still endpoint upstream. `use_stream_for_stills=True` and `handle_snapshot_from_rtsp` calls `async_get_image()` (the HA stream component path) — **not** `entity.async_camera_image()`. A periodic `async_track_time_interval` keeps the active stream's source URL in sync as `token_l` rotates.
 - **`image.UcamsCameraImageEntity`** — pulls `screenshot_domain` JPEGs on a `CONF_CAMERA_IMAGE_REFRESH_INTERVAL` cadence by bumping `_attr_image_last_updated` (which causes HA to re-call `async_image`).
@@ -113,6 +130,7 @@ truth (`push.data.uuid` ≠ history uuid; only `time` == `called_at`).
   - `ContractDetailSensor` / `ServiceDetailSensor` — billing data from `get_all_contracts` / `get_contract_details`.
 - **`button.ArchiveButton`** — three preset durations (5min / 1h / 5h) per camera; presses request an archive URL and write it to the matching `ArchiveLinkSensor`.
 - **`event.IntercomCallEvent`** — doorbell event (`ring`) per skud with a `cctv_number`, fired once per new call-history uuid of that camera. Seeds seen uuids at init (no replay) and skips calls older than 5 min (catch-up after an outage). Works with polling alone; push just makes it fire ~1s after the call.
+- **`binary_sensor.UcamsMotionSensor`** — motion (device class `motion`) per contract camera with Ufanet's detector; see «Motion events» above.
 - **`geo_location.UcamsLocation`** — only created for cameras that report lat/lon. Distance to home is computed once at init (cameras don't move).
 
 ### Conventions worth knowing

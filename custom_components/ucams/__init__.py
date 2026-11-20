@@ -20,7 +20,11 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.typing import ConfigType
 
-from .coordinator import async_refresh_for_call, build_call_history_coordinator
+from .coordinator import (
+    async_refresh_for_call,
+    build_call_history_coordinator,
+    build_motion_coordinator,
+)
 from .push import PushListener, async_remove_registration
 from .ucams import UcamsApi
 from .ufanet import DomApi
@@ -50,6 +54,7 @@ PLATFORMS: list[str] = [
     Platform.BUTTON,
     Platform.GEO_LOCATION,
     Platform.EVENT,
+    Platform.BINARY_SENSOR,
 ]
 
 ASSETS_PATH = Path(__file__).parent / "assets"
@@ -189,6 +194,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     coordinator = build_call_history_coordinator(hass, ufanet_api)
     await coordinator.async_config_entry_first_refresh()
     hass.data[config_entry.entry_id]["call_history_coordinator"] = coordinator
+    await _async_setup_motion(hass, config_entry, cameras_api, cameras_info)
     await _async_register_static_assets(hass)
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
     await _async_setup_push(hass, config_entry, ufanet_api, coordinator)
@@ -198,6 +204,36 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> b
     # they only take effect on a reload — do it for the user.
     config_entry.async_on_unload(config_entry.add_update_listener(_async_options_updated))
     return True
+
+
+async def _async_setup_motion(
+    hass: HomeAssistant, config_entry: ConfigEntry, cameras_api: UcamsApi, cameras_info: dict
+) -> None:
+    """Find the cameras with Ufanet's motion detector and start polling them.
+
+    Non-fatal like the other cams_server extras: without it the entry just has
+    no motion sensors this run. City cameras are left out — that would be one
+    poll over up to a hundred cameras nobody asked motion for.
+    """
+    data = hass.data[config_entry.entry_id]
+    data["motion_cameras"] = set()
+    if not cameras_info:
+        return
+    try:
+        motion_cameras = await cameras_api.get_motion_cameras(list(cameras_info))
+    except ConfigEntryAuthFailed:
+        raise
+    except Exception as err:
+        _LOGGER.warning("Failed to look up cameras with motion detection: %s", err)
+        return
+    _LOGGER.info("Motion detection: %s of %s cameras", len(motion_cameras), len(cameras_info))
+    if not motion_cameras:
+        return
+    coordinator = build_motion_coordinator(hass, cameras_api, sorted(motion_cameras))
+    # Not the first-refresh variant: a failed poll must not fail the entry.
+    await coordinator.async_refresh()
+    data["motion_cameras"] = motion_cameras
+    data["motion_coordinator"] = coordinator
 
 
 async def _async_setup_push(
@@ -301,7 +337,14 @@ async def _async_load_barriers(cameras_api: UcamsApi) -> list[dict]:
 # unique_id prefixes (after the entry_id) of the entities that exist once per
 # camera — the ones a second account seeing the same camera would duplicate.
 # Intercom entities are keyed by the account's own skud and never collide.
-_CAMERA_ENTITY_PREFIXES = ("camera-", "image-", "geo-", "archive_link_sensor_", "archive_button_")
+_CAMERA_ENTITY_PREFIXES = (
+    "camera-",
+    "image-",
+    "geo-",
+    "motion-",
+    "archive_link_sensor_",
+    "archive_button_",
+)
 
 
 def _camera_of_unique_id(unique_id: str, entry_id: str) -> tuple[str, str] | None:
