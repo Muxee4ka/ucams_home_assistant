@@ -94,6 +94,7 @@ async def test_failed_public_cameras_schedule_a_reload(config_entry, monkeypatch
     call_later = MagicMock()
     monkeypatch.setattr(ucams_init, "async_call_later", call_later)
     hass = MagicMock()
+    hass.data = {}
     hass.config.latitude, hass.config.longitude = 54.7, 55.9
     cameras_api = MagicMock(get_public_cameras_info=AsyncMock(side_effect=OSError("reset")))
 
@@ -104,6 +105,38 @@ async def test_failed_public_cameras_schedule_a_reload(config_entry, monkeypatch
     config_entry.async_on_unload.assert_called_once_with(call_later.return_value)
     retry(None)
     hass.config_entries.async_schedule_reload.assert_called_once_with(config_entry.entry_id)
+
+
+async def test_public_cameras_retry_backs_off(config_entry, monkeypatch):
+    """A failure that doesn't go away must not reload the entry every 10 min (#18)."""
+    config_entry.options = {**config_entry.options, "public_cameras": True}
+    config_entry.async_on_unload = MagicMock()
+    call_later = MagicMock()
+    monkeypatch.setattr(ucams_init, "async_call_later", call_later)
+    hass = MagicMock()
+    hass.data = {}
+    hass.config.latitude, hass.config.longitude = 54.7, 55.9
+    failing = AsyncMock(side_effect=OSError("403"))
+    cameras_api = MagicMock(get_public_cameras_info=failing)
+
+    delays = []
+    for _ in range(8):
+        await ucams_init._async_load_public_cameras(hass, config_entry, cameras_api)
+        delays.append(call_later.call_args.args[1])
+
+    base = ucams_init.PUBLIC_CAMERAS_RETRY_DELAY
+    assert delays[:4] == [base, 2 * base, 4 * base, 8 * base]
+    assert delays[-1] == ucams_init.PUBLIC_CAMERAS_RETRY_MAX_DELAY
+
+    # One success starts the ladder over.
+    failing.side_effect = None
+    failing.return_value = {"cam": {}}
+    assert await ucams_init._async_load_public_cameras(hass, config_entry, cameras_api) == {
+        "cam": {}
+    }
+    failing.side_effect = OSError("reset")
+    await ucams_init._async_load_public_cameras(hass, config_entry, cameras_api)
+    assert call_later.call_args.args[1] == base
 
 
 def test_assign_areas_keeps_the_users_choice(monkeypatch):

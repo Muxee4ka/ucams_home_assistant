@@ -66,7 +66,11 @@ Archive buttons, archive-link sensors and `_assign_areas_by_address` keep readin
 `cameras_info` alone — city cameras have no archive, and pinning them to areas
 would spawn one area per street. Their discovery failure is non-fatal by design
 (`_async_load_public_cameras` logs, returns `{}` and schedules an entry reload in
-`PUBLIC_CAMERAS_RETRY_DELAY`); the user's own cameras must still come up.
+`PUBLIC_CAMERAS_RETRY_DELAY`, doubling per failure up to
+`PUBLIC_CAMERAS_RETRY_MAX_DELAY`); the user's own cameras must still come up.
+A reload blinks every entity unavailable, and the doorbell `event` comes back
+with its last timestamp — a fixed 10-min retry re-fired state triggers forever
+on an account cams_server kept refusing (#18).
 
 **Ufanet outages answer `/api/v1/cctv` with HTTP 200 and `[]`.** At setup that
 raises `ConfigEntryNotReady` when the entry already has archive buttons in the

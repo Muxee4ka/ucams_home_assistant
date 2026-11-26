@@ -64,6 +64,14 @@ STATIC_ASSETS_REGISTERED = f"{DOMAIN}_static_assets"
 # A failed city-camera load leaves those entities unavailable; the entry is
 # reloaded after this long to pick them up once cams_server is back.
 PUBLIC_CAMERAS_RETRY_DELAY = 600
+# Each failed retry doubles the wait up to this cap. A retry is a reload of the
+# whole entry — every entity blinks unavailable — and a failure that doesn't go
+# away (an account cams_server refuses) used to reload it every 10 min
+# forever, which re-fired state triggers on the doorbell event (#18).
+PUBLIC_CAMERAS_RETRY_MAX_DELAY = 6 * 3600
+# hass.data key: {entry_id: failed attempts in a row}. Outlives the reloads it
+# counts, so it can't live in the entry's own bag.
+PUBLIC_CAMERAS_FAILURES = f"{DOMAIN}_public_cameras_failures"
 
 DATA_SCHEMA = {
     vol.Required(CONF_NAME, default="Ucams"): str,
@@ -263,6 +271,7 @@ async def _async_setup_push(
 
 async def async_remove_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> None:
     """Take our FCM device off the Ufanet account when the entry is deleted."""
+    hass.data.get(PUBLIC_CAMERAS_FAILURES, {}).pop(config_entry.entry_id, None)
     dom_api = DomApi(hass, config_entry)
     try:
         await async_remove_registration(hass, config_entry.entry_id, dom_api)
@@ -282,8 +291,10 @@ async def _async_load_public_cameras(
     Deliberately non-fatal: city cameras are a bonus on top of the user's own
     ones, so a cams_server hiccup must not take the whole entry down with it.
     """
+    failures: dict[str, int] = hass.data.setdefault(PUBLIC_CAMERAS_FAILURES, {})
     options = config_entry.options
     if not options.get(CONF_PUBLIC_CAMERAS, False):
+        failures.pop(config_entry.entry_id, None)
         return {}
 
     query = (options.get(CONF_PUBLIC_CAMERAS_QUERY) or "").strip()
@@ -296,25 +307,30 @@ async def _async_load_public_cameras(
         )
 
     try:
-        return await cameras_api.get_public_cameras_info(
+        public = await cameras_api.get_public_cameras_info(
             query=query or None, radius_km=radius_km or None, home=home
         )
     except ConfigEntryAuthFailed:
         # Credentials going bad is a real failure — HA must start reauth.
         raise
     except Exception as err:
+        attempt = failures.get(config_entry.entry_id, 0)
+        failures[config_entry.entry_id] = attempt + 1
+        delay = min(PUBLIC_CAMERAS_RETRY_DELAY * 2**attempt, PUBLIC_CAMERAS_RETRY_MAX_DELAY)
         _LOGGER.warning(
             "Failed to load public city cameras: %s. Reloading the entry in %s sec to retry.",
             err,
-            PUBLIC_CAMERAS_RETRY_DELAY,
+            delay,
         )
 
         @callback
         def _retry(_now) -> None:
             hass.config_entries.async_schedule_reload(config_entry.entry_id)
 
-        config_entry.async_on_unload(async_call_later(hass, PUBLIC_CAMERAS_RETRY_DELAY, _retry))
+        config_entry.async_on_unload(async_call_later(hass, delay, _retry))
         return {}
+    failures.pop(config_entry.entry_id, None)
+    return public
 
 
 async def _async_load_barriers(cameras_api: UcamsApi) -> list[dict]:
