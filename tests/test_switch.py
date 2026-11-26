@@ -104,24 +104,37 @@ async def test_active_barrier_is_enabled_by_default(config_entry):
 
 
 @pytest.mark.asyncio
-async def test_turn_on_single_module_sends_device_wide_command(monkeypatch):
-    """One module → the app's DEVICE mode: open_barrier without module_id."""
+async def test_turn_on_single_module_targets_it(monkeypatch):
+    """One module → still named: `module_id: null` left a barrier shut (#19)."""
     monkeypatch.setattr(switch_platform, "BARRIER_AUTO_OFF_DELAY", 0.01)
     hass = FakeHass()
     entity = _fresh_entity(hass, BARRIER)
 
     await entity.async_turn_on()
 
-    entity.cameras_api.open_barrier.assert_awaited_once_with(42, None)
+    entity.cameras_api.open_barrier.assert_awaited_once_with(42, 7)
     assert hass.bus.async_fire.call_count == 1
     event_type, event_data = hass.bus.async_fire.call_args.args
     assert event_type == "ucams_barrier_opened"
     assert event_data["barrier_id"] == 42
-    assert event_data["module_id"] is None
+    assert event_data["module_id"] == 7
     assert entity.is_on is True
 
     await asyncio.sleep(0.05)
     assert entity.is_on is False  # momentary: flipped back without a timer
+
+
+@pytest.mark.asyncio
+async def test_turn_on_without_modules_sends_device_wide_command(monkeypatch):
+    """No modules listed → nothing to name: fall back to `module_id: null`."""
+    monkeypatch.setattr(switch_platform, "BARRIER_AUTO_OFF_DELAY", 0.01)
+    hass = FakeHass()
+    entity = _fresh_entity(hass, {**BARRIER, "module_ids": []})
+
+    await entity.async_turn_on()
+
+    entity.cameras_api.open_barrier.assert_awaited_once_with(42, None)
+    await entity._auto_off_task
 
 
 @pytest.mark.asyncio

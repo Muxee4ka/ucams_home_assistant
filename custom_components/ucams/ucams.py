@@ -535,7 +535,9 @@ class UcamsApi:
 
         `module_id` is nullable and the key is always sent — the app puts
         `module_id: null` into the payload for device-wide commands (its
-        DEVICE vs MODULE command enum), and we copy that byte for byte.
+        DEVICE vs MODULE command enum). The switch still names the module
+        whenever the device has one: a device-wide open is answered without
+        an error yet leaves some barriers shut (#19).
         """
         session = await self._ensure_cams_session()
         payload: dict = {

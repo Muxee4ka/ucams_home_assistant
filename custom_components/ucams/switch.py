@@ -172,22 +172,22 @@ class UcamsBarrierSwitchEntity(SwitchEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Send the open command (momentary)."""
-        module_id = None
-        if len(self.module_ids) > 1:
-            # The app targets one module per command when the device has
-            # several; which module a press should drive is a UI decision we
-            # haven't made yet, so drive the first and say so.
-            module_id = self.module_ids[0]
-            if not self._multi_module_warned:
-                _LOGGER.warning(
-                    "Barrier %s has %s modules (%s); opening module %s. "
-                    "Per-module switches may follow once the API is confirmed live.",
-                    self.barrier_id,
-                    len(self.module_ids),
-                    self.module_ids,
-                    module_id,
-                )
-                self._multi_module_warned = True
+        # A device-wide command (`module_id: null`) is accepted by the API but
+        # doesn't open every barrier — a single-module one stayed shut until
+        # its module was named (#19). So always target a module when there is
+        # one; with several, which one a press should drive is a UI decision
+        # we haven't made yet, so drive the first and say so.
+        module_id = self.module_ids[0] if self.module_ids else None
+        if len(self.module_ids) > 1 and not self._multi_module_warned:
+            _LOGGER.warning(
+                "Barrier %s has %s modules (%s); opening module %s. "
+                "Per-module switches may follow once the API is confirmed live.",
+                self.barrier_id,
+                len(self.module_ids),
+                self.module_ids,
+                module_id,
+            )
+            self._multi_module_warned = True
         await self.cameras_api.open_barrier(self.barrier_id, module_id)
         self.hass.bus.async_fire(
             f"{DOMAIN}_barrier_opened",
